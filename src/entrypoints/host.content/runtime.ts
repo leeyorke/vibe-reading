@@ -18,7 +18,6 @@ export async function bootstrapHostContent(ctx: ContentScriptContext, initialCon
   const cleanupUrlListener = setupUrlChangeListener()
 
   const removeHostToast = window === window.top ? mountHostToast() : () => {}
-
   const teardownNodeTranslation = registerNodeTranslationTriggers()
 
   const preloadConfig = initialConfig?.translate.page.preload ?? DEFAULT_CONFIG.translate.page.preload

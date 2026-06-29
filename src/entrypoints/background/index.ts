@@ -8,8 +8,10 @@ import { cleanupAllSummaryCache, cleanupAllTranslationCache, setUpDatabaseCleanu
 import { setupIframeInjection } from "./iframe-injection"
 import { setupLLMGenerateTextMessageHandlers } from "./llm-generate-text"
 import { proxyFetch } from "./proxy-fetch"
+import { setupSelectionTranslateHandler } from "./selection-translate"
 import { setUpWebPageTranslationQueue } from "./translation-queues"
 import { translationMessage } from "./translation-signal"
+import { setupVocabularyMessageHandlers } from "./vocabulary-handlers"
 
 export default defineBackground({
   type: "module",
@@ -44,5 +46,11 @@ export default defineBackground({
 
     // Setup on-demand iframe injection after page translation is enabled.
     setupIframeInjection()
+
+    // Handle selection translation requests from content script
+    setupSelectionTranslateHandler()
+
+    // Handle vocabulary and flashcard message requests
+    setupVocabularyMessageHandlers()
   },
 })

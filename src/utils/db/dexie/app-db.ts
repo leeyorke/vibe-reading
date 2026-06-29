@@ -4,6 +4,7 @@ import Dexie from "dexie"
 import { APP_NAME } from "@/utils/constants/app"
 import ArticleSummaryCache from "./tables/article-summary-cache"
 import TranslationCache from "./tables/translation-cache"
+import VocabularyWordEntity from "./tables/vocabulary-word"
 
 export default class AppDB extends Dexie {
   translationCache!: EntityTable<
@@ -16,9 +17,14 @@ export default class AppDB extends Dexie {
     "key"
   >
 
+  vocabularyWords!: EntityTable<
+    VocabularyWordEntity,
+    "id"
+  >
+
   constructor() {
     super(`${upperCamelCase(APP_NAME)}DB`)
-    this.version(5).stores({
+    this.version(6).stores({
       translationCache: `
         key,
         translation,
@@ -26,10 +32,18 @@ export default class AppDB extends Dexie {
       articleSummaryCache: `
         key,
         createdAt`,
+      vocabularyWords: `
+        id,
+        word,
+        star,
+        createdAt,
+        lastReviewedAt,
+        reviewCount`,
       batchRequestRecord: null,
       aiSegmentationCache: null,
     })
     this.translationCache.mapToClass(TranslationCache)
     this.articleSummaryCache.mapToClass(ArticleSummaryCache)
+    this.vocabularyWords.mapToClass(VocabularyWordEntity)
   }
 }

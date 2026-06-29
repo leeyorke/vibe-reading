@@ -9,12 +9,16 @@ type RoutePath = (typeof ROUTE_DEFS)[number]["path"]
 const ApiProvidersPage = lazy(() => import("./pages/api-providers").then(module => ({ default: module.ApiProvidersPage })))
 const TranslationPage = lazy(() => import("./pages/translation").then(module => ({ default: module.TranslationPage })))
 const ConfigPage = lazy(() => import("./pages/config").then(module => ({ default: module.ConfigPage })))
+const VocabularyPage = lazy(() => import("./pages/vocabulary/vocabulary-page").then(module => ({ default: module.VocabularyPage })))
+const FlashcardsPage = lazy(() => import("./pages/flashcards/flashcard-session").then(module => ({ default: module.FlashcardsPage })))
 
 const ROUTE_COMPONENTS: Record<RoutePath, ComponentType> = {
   "/": GeneralPage,
   "/api-providers": ApiProvidersPage,
   "/translation": TranslationPage,
   "/config": ConfigPage,
+  "/vocabulary": VocabularyPage,
+  "/flashcards": FlashcardsPage,
 }
 
 function RouteLoadingFallback() {
