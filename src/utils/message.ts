@@ -12,6 +12,7 @@ import type {
   UpdateVocabularyWordPayload,
   VocabularyQuery,
   VocabularyWord,
+  WordDefinition,
 } from "@/types/vocabulary"
 import { defineExtensionMessaging } from "@webext-core/messaging"
 
@@ -48,6 +49,9 @@ interface ProtocolMap {
     sourceLanguageCode?: string
     targetLanguageCode?: string
   }) => Promise<string | null>
+  translateSelectedTextStructured: (data: {
+    text: string
+  }) => Promise<WordDefinition | null>
 
   // --- vocabulary ---
   addVocabularyWord: (data: AddVocabularyWordPayload) => Promise<string>

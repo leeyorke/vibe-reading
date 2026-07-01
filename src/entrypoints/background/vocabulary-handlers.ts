@@ -46,7 +46,7 @@ async function handleAddWord(data: AddVocabularyWordPayload): Promise<string> {
     contextText: data.contextText,
     sourceLanguage: data.sourceLanguage,
     targetLanguage: data.targetLanguage,
-    star: 3, // default: medium
+    star: 1, // default: 1 star
     createdAt: now,
     reviewCount: 0,
   }

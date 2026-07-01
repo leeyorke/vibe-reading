@@ -1,3 +1,4 @@
+import type { WordDefinition } from "@/types/vocabulary"
 import { Icon } from "@iconify/react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
@@ -14,6 +15,7 @@ export function SelectionToolbar() {
   const selection = useTextSelection(toolbarRef)
   const [translating, setTranslating] = useState(false)
   const [translation, setTranslation] = useState<string | null>(null)
+  const [wordDef, setWordDef] = useState<WordDefinition | null>(null)
   const [showTranslation, setShowTranslation] = useState(false)
   // Track whether we're in an "active" state (translating or showing result)
   // so the toolbar stays visible even after selection is cleared by clicking it
@@ -37,6 +39,7 @@ export function SelectionToolbar() {
     if (selection.isVisible) {
       setShowTranslation(false)
       setTranslation(null)
+      setWordDef(null)
       setTranslating(false)
       setPinned(false)
       pinnedRectRef.current = null
@@ -50,6 +53,7 @@ export function SelectionToolbar() {
     if (!selection.isVisible && !pinned) {
       setShowTranslation(false)
       setTranslation(null)
+      setWordDef(null)
     }
   }, [selection.isVisible, pinned])
 
@@ -75,8 +79,25 @@ export function SelectionToolbar() {
     setTranslating(true)
     setShowTranslation(true)
     setTranslation(null)
+    setWordDef(null)
+
+    const trimmed = selection.text.trim()
+    const wordCount = trimmed.split(/\s+/).length
 
     try {
+      // Single word: try structured dictionary lookup first
+      if (wordCount === 1) {
+        const def = await sendMessage("translateSelectedTextStructured", {
+          text: trimmed,
+        })
+        if (def) {
+          setWordDef(def)
+          setTranslating(false)
+          return
+        }
+      }
+
+      // Fallback to AI translation (multi-word or dictionary miss)
       const result = await sendMessage("translateSelectedText", {
         text: selection.text,
       })
@@ -91,15 +112,37 @@ export function SelectionToolbar() {
   }, [selection.text, selection.rect, translating])
 
   const handleAddToVocab = useCallback(async () => {
-    if (!selection.text || !translation || collectState !== "idle")
+    if (!selection.text || collectState !== "idle")
+      return
+
+    // Determine the translation string to save
+    let translationToSave: string | null = translation
+    let wordToSave = selection.text
+
+    if (!translationToSave && wordDef) {
+      const ukPhonetic = wordDef.phoneticUK ?? ""
+      const usPhonetic = wordDef.phoneticUS ?? ""
+      const phoneticLine = ukPhonetic || usPhonetic
+        ? `英 ${ukPhonetic || ""}${usPhonetic ? ` 美 ${usPhonetic}` : ""}`.trim()
+        : ""
+      const sensesLine = wordDef.senses
+        .map(s => `${s.number}. ${wordDef.pos ? `${wordDef.pos}. ` : ""}${s.chineseDefinition}`)
+        .join("\n")
+      translationToSave = [wordDef.headword, phoneticLine, sensesLine]
+        .filter(Boolean)
+        .join("\n")
+      wordToSave = wordDef.headword
+    }
+
+    if (!translationToSave)
       return
 
     setCollectState("collecting")
 
     try {
       await sendMessage("addVocabularyWord", {
-        word: selection.text,
-        translation,
+        word: wordToSave,
+        translation: translationToSave,
         contextUrl: window.location.href,
         contextText: selection.text,
       })
@@ -116,13 +159,14 @@ export function SelectionToolbar() {
       setCollectState("idle")
       toast.error("收藏失败")
     }
-  }, [selection.text, translation, collectState])
+  }, [selection.text, translation, wordDef, collectState])
 
   // Dismiss toolbar and popover when user clicks outside
   const handleDismiss = useCallback(() => {
     setPinned(false)
     setShowTranslation(false)
     setTranslation(null)
+    setWordDef(null)
     setTranslating(false)
     pinnedRectRef.current = null
     setCollectState("idle")
@@ -130,7 +174,8 @@ export function SelectionToolbar() {
   }, [])
 
   const isCollectActive = collectState !== "idle"
-  const isCollectDisabled = !translation || isCollectActive
+  const hasResult = translation !== null || wordDef !== null
+  const isCollectDisabled = !hasResult || isCollectActive
 
   if (!position) {
     return null
@@ -203,7 +248,7 @@ export function SelectionToolbar() {
             cursor: "pointer",
             fontSize: "13px",
             fontWeight: 500,
-            opacity: !translation ? 0.4 : 1,
+            opacity: hasResult ? 1 : 0.4,
             transition: "all 0.2s ease",
             animation: isCollectActive ? "vibe-reading-bounce 0.3s ease" : "none",
             pointerEvents: "auto",
@@ -254,23 +299,21 @@ export function SelectionToolbar() {
             top: "calc(100% + 4px)",
             left: "50%",
             transform: "translateX(-50%)",
-            minWidth: "200px",
-            maxWidth: "360px",
-            padding: "8px 12px",
-            background: "var(--color-surface, #fff)",
-            border: "1px solid var(--color-border, #e5e7eb)",
-            borderRadius: "8px",
-            boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
-            fontSize: "14px",
-            lineHeight: "1.5",
-            color: "var(--color-text, #1f2937)",
+            minWidth: "240px",
+            maxWidth: "380px",
+            background: "#fff",
+            borderRadius: "15px",
+            boxShadow: "0 4px 20px rgba(0,0,0,0.08), 0 2px 8px rgba(0,0,0,0.04)",
+            overflow: "hidden",
+            color: "#1f2937",
             wordBreak: "break-word",
+            pointerEvents: "auto",
           }}
           className="notranslate"
         >
           {translating
             ? (
-                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "14px 18px", fontSize: "14px" }}>
                   <span style={{
                     width: "14px",
                     height: "14px",
@@ -283,9 +326,105 @@ export function SelectionToolbar() {
                   翻译中...
                 </div>
               )
-            : (
-                <div>{translation}</div>
-              )}
+            : wordDef
+              ? (
+                  <>
+                    {/* Top blue accent bar */}
+                    <div style={{ height: "3px", background: "var(--color-brand, #3b82f6)" }} />
+                    <div style={{ padding: "16px 18px" }}>
+                      {/* Headword + pos tag */}
+                      <div style={{ display: "flex", alignItems: "baseline", gap: "10px", flexWrap: "wrap" }}>
+                        <span style={{ fontSize: "28px", fontWeight: 700, lineHeight: 1.2, color: "#111827" }}>
+                          {wordDef.headword}
+                        </span>
+                        {wordDef.pos && (
+                          <span style={{
+                            fontSize: "12px",
+                            fontWeight: 600,
+                            padding: "2px 8px",
+                            borderRadius: "999px",
+                            background: "var(--color-brand-50, #eff6ff)",
+                            color: "var(--color-brand-700, #1d4ed8)",
+                          }}
+                          >
+                            {wordDef.pos}
+                          </span>
+                        )}
+                      </div>
+                      {/* Phonetics */}
+                      {(wordDef.phoneticUK || wordDef.phoneticUS) && (
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", marginTop: "8px" }}>
+                          {wordDef.phoneticUK && (
+                            <span style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: "4px",
+                              fontSize: "12px",
+                              padding: "3px 10px",
+                              borderRadius: "999px",
+                              background: "#f3f4f6",
+                              color: "#4b5563",
+                            }}
+                            >
+                              <span style={{ fontWeight: 600 }}>英</span>
+                              <span style={{ fontFamily: "ui-serif, Georgia, serif" }}>
+                                /
+                                {wordDef.phoneticUK}
+                                /
+                              </span>
+                            </span>
+                          )}
+                          {wordDef.phoneticUS && (
+                            <span style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: "4px",
+                              fontSize: "12px",
+                              padding: "3px 10px",
+                              borderRadius: "999px",
+                              background: "#f3f4f6",
+                              color: "#4b5563",
+                            }}
+                            >
+                              <span style={{ fontWeight: 600 }}>美</span>
+                              <span style={{ fontFamily: "ui-serif, Georgia, serif" }}>
+                                /
+                                {wordDef.phoneticUS}
+                                /
+                              </span>
+                            </span>
+                          )}
+                        </div>
+                      )}
+                      {/* Senses list */}
+                      <ol style={{ listStyle: "none", padding: 0, margin: "14px 0 0 0", display: "flex", flexDirection: "column", gap: "6px" }}>
+                        {wordDef.senses.map(sense => (
+                          <li
+                            key={sense.number}
+                            style={{
+                              display: "flex",
+                              gap: "8px",
+                              fontSize: "14px",
+                              lineHeight: 1.5,
+                              color: "#374151",
+                            }}
+                          >
+                            <span style={{ color: "var(--color-brand, #3b82f6)", fontWeight: 600, flexShrink: 0 }}>
+                              {sense.number}
+                              .
+                            </span>
+                            <span>{sense.chineseDefinition}</span>
+                          </li>
+                        ))}
+                      </ol>
+                    </div>
+                  </>
+                )
+              : (
+                  <div style={{ padding: "14px 18px", fontSize: "14px", lineHeight: 1.5, whiteSpace: "pre-wrap" }}>
+                    {translation}
+                  </div>
+                )}
         </div>
       )}
 

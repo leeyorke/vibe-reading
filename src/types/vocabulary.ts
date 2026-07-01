@@ -55,3 +55,15 @@ export interface FlashcardSession {
   words: VocabularyWord[]
   total: number
 }
+
+/** Structured word definition returned by the dictionary REST API */
+export interface WordDefinition {
+  headword: string
+  phoneticUK?: string
+  phoneticUS?: string
+  pos: string
+  senses: Array<{
+    number: string
+    chineseDefinition: string
+  }>
+}
