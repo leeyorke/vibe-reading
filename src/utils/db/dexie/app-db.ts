@@ -42,6 +42,25 @@ export default class AppDB extends Dexie {
       batchRequestRecord: null,
       aiSegmentationCache: null,
     })
+    this.version(7).stores({
+      translationCache: `
+        key,
+        translation,
+        createdAt`,
+      articleSummaryCache: `
+        key,
+        createdAt`,
+      vocabularyWords: `
+        id,
+        word,
+        star,
+        createdAt,
+        lastReviewedAt,
+        reviewCount`,
+    }).upgrade((tx) => {
+      // Clear vocabulary data after migration to backend API
+      return tx.table("vocabularyWords").clear()
+    })
     this.translationCache.mapToClass(TranslationCache)
     this.articleSummaryCache.mapToClass(ArticleSummaryCache)
     this.vocabularyWords.mapToClass(VocabularyWordEntity)

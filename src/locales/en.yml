@@ -520,3 +520,10 @@ languages:
   wls: Wallisian
   rar: Rarotongan
   hif: Fiji Hindi
+sortBy:
+  createdAt: Added Time
+  star: Star Rating
+  word: Word
+sortOrder:
+  asc: Ascending
+  desc: Descending

@@ -520,3 +520,10 @@ languages:
   wls: 瓦利斯语
   rar: 拉罗汤加语
   hif: 斐济印地语
+sortBy:
+  createdAt: 添加时间
+  star: 星级
+  word: 单词
+sortOrder:
+  asc: 升序
+  desc: 降序

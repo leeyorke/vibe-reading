@@ -10,6 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/base-ui/select"
+import { i18n } from "@/utils/i18n"
 import { sendMessage } from "@/utils/message"
 import { PageLayout } from "../../components/page-layout"
 import { StarRating } from "./star-rating"
@@ -99,12 +100,14 @@ export function VocabularyPage() {
           }}
         >
           <SelectTrigger className="w-32">
-            <SelectValue />
+            <SelectValue>
+              {i18n.t(`sortBy.${sortBy}`)}
+            </SelectValue>
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="createdAt">添加时间</SelectItem>
-            <SelectItem value="star">星级</SelectItem>
-            <SelectItem value="word">单词</SelectItem>
+            <SelectItem value="createdAt">{i18n.t("sortBy.createdAt")}</SelectItem>
+            <SelectItem value="star">{i18n.t("sortBy.star")}</SelectItem>
+            <SelectItem value="word">{i18n.t("sortBy.word")}</SelectItem>
           </SelectContent>
         </Select>
 
@@ -112,7 +115,7 @@ export function VocabularyPage() {
           variant="outline"
           size="icon"
           onClick={() => setSortOrder(prev => prev === "asc" ? "desc" : "asc")}
-          title={sortOrder === "asc" ? "升序" : "降序"}
+          title={sortOrder === "asc" ? i18n.t("sortOrder.asc") : i18n.t("sortOrder.desc")}
         >
           <Icon icon={sortOrder === "asc" ? "tabler:sort-ascending" : "tabler:sort-descending"} />
         </Button>
