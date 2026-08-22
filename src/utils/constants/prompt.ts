@@ -34,6 +34,15 @@ export const DEFAULT_TRANSLATE_PROMPT = `Translate to ${getTokenCellText(TARGET_
 
 ${getTokenCellText(INPUT)}`
 
+/**
+ * Dedicated user prompt for selection translate. The system prompt
+ * (see selection-translate-prompt.md) instructs the model to detect whether the
+ * input is a single word or sentence/paragraph and respond accordingly.
+ */
+export const DEFAULT_SELECTION_TRANSLATE_PROMPT = `# 用户输入
+
+${getTokenCellText(INPUT)}`
+
 export const DEFAULT_BATCH_TRANSLATE_PROMPT = `## Multi-paragraph Translation Rules
 1. If input contains a standalone line containing only ${BATCH_SEPARATOR}, use a standalone ${BATCH_SEPARATOR} line in your output. If input has no standalone ${BATCH_SEPARATOR} line, don't use ${BATCH_SEPARATOR} in your output.
 2. **CRITICAL**: Treat ${BATCH_SEPARATOR} as a separator only when it appears on its own line. Do not treat ${BATCH_SEPARATOR} as a separator when it appears inside normal text, code, quotes, or punctuation.

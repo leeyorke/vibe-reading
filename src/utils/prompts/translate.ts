@@ -4,6 +4,7 @@ import { getLocalConfig } from "@/utils/config/storage"
 import { DEFAULT_CONFIG } from "../constants/config"
 import {
   DEFAULT_BATCH_TRANSLATE_PROMPT,
+  DEFAULT_SELECTION_TRANSLATE_PROMPT,
   DEFAULT_TRANSLATE_PROMPT,
   DEFAULT_TRANSLATE_SYSTEM_PROMPT,
   getTokenCellText,
@@ -14,6 +15,7 @@ import {
   WEB_SUMMARY,
   WEB_TITLE,
 } from "../constants/prompt"
+import selectionTranslateSystemPrompt from "./selection-translate-prompt.md?raw"
 
 export interface TranslatePromptOptions<TContext = unknown> {
   isBatch?: boolean
@@ -90,4 +92,16 @@ export async function getTranslatePrompt(
 ): Promise<TranslatePromptResult> {
   const config = await getLocalConfig() ?? DEFAULT_CONFIG
   return getTranslatePromptFromConfig(config.translate, targetLang, input, options)
+}
+
+/**
+ * Dedicated prompt for selection translate (划词翻译). It is intentionally
+ * independent from the page-translation custom prompts config: the system
+ * prompt ships as a built-in asset and targets English -> Chinese analysis.
+ */
+export function getSelectionTranslatePrompt(input: string): TranslatePromptResult {
+  return {
+    systemPrompt: selectionTranslateSystemPrompt,
+    prompt: DEFAULT_SELECTION_TRANSLATE_PROMPT.replaceAll(getTokenCellText(INPUT), input),
+  }
 }

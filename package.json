@@ -1,7 +1,7 @@
 {
   "name": "@vibe-reading/extension",
   "type": "module",
-  "version": "1.36.0",
+  "version": "1.37.0",
   "private": true,
   "packageManager": "pnpm@10.33.4",
   "description": "Vibe Reading browser extension for language learning",
@@ -67,7 +67,9 @@
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "react-error-boundary": "^6.1.2",
+    "react-markdown": "^10.1.0",
     "react-router": "^7.17.0",
+    "remark-gfm": "^4.0.1",
     "shadcn": "^4.11.0",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.6.0",

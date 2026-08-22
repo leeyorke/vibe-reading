@@ -1,13 +1,36 @@
+import type { PointerEvent as ReactPointerEvent } from "react"
 import type { WordDefinition } from "@/types/vocabulary"
 import { Icon } from "@iconify/react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 import { sendMessage } from "@/utils/message"
+import { MarkdownContent } from "./markdown-content"
 import { useTextSelection } from "./use-text-selection"
 
 interface ToolbarPosition {
   top: number
   left: number
+}
+
+interface PopoverPosition {
+  left: number
+  top: number
+}
+
+interface PopoverDragOrigin {
+  // Popover offset relative to the toolbar wrapper while anchored
+  left: number
+  top: number
+  pointerX: number
+  pointerY: number
+  wrapLeft: number
+  wrapTop: number
+}
+
+const POPOVER_VIEWPORT_MARGIN = 8
+
+function clampValue(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(value, max))
 }
 
 export function SelectionToolbar() {
@@ -28,6 +51,12 @@ export function SelectionToolbar() {
   const [collectState, setCollectState] = useState<"idle" | "collecting" | "collected">("idle")
   const collectTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
+  // Drag state for the result popover (positions are wrapper-relative pixels)
+  const popoverRef = useRef<HTMLDivElement>(null)
+  const [popoverPos, setPopoverPos] = useState<PopoverPosition | null>(null)
+  const [dragging, setDragging] = useState(false)
+  const dragOriginRef = useRef<PopoverDragOrigin | null>(null)
+
   // Show condition: either there's a fresh selection, or we're pinned (translating/showing result)
   const shouldShow = selection.isVisible || pinned
 
@@ -45,6 +74,9 @@ export function SelectionToolbar() {
       pinnedRectRef.current = null
       setCollectState("idle")
       clearTimeout(collectTimerRef.current)
+      setPopoverPos(null)
+      setDragging(false)
+      dragOriginRef.current = null
     }
   }, [selection.isVisible])
 
@@ -80,6 +112,8 @@ export function SelectionToolbar() {
     setShowTranslation(true)
     setTranslation(null)
     setWordDef(null)
+    // A fresh result snaps back to its anchored spot under the toolbar
+    setPopoverPos(null)
 
     const trimmed = selection.text.trim()
     const wordCount = trimmed.split(/\s+/).length
@@ -171,6 +205,64 @@ export function SelectionToolbar() {
     pinnedRectRef.current = null
     setCollectState("idle")
     clearTimeout(collectTimerRef.current)
+    setPopoverPos(null)
+  }, [])
+
+  // Drag the result popover via its top handle. The popover stays absolutely
+  // positioned inside the fixed wrapper, so we only move it in wrapper-relative
+  // coordinates — no position:fixed (the wrapper's transform would trap it).
+  const handleDragStart = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    const popover = popoverRef.current
+    const wrapper = toolbarRef.current
+    if (!popover || !wrapper || event.button !== 0)
+      return
+
+    event.preventDefault()
+    const popRect = popover.getBoundingClientRect()
+    const wrapRect = wrapper.getBoundingClientRect()
+    dragOriginRef.current = {
+      left: popRect.left - wrapRect.left,
+      top: popRect.top - wrapRect.top,
+      pointerX: event.clientX,
+      pointerY: event.clientY,
+      wrapLeft: wrapRect.left,
+      wrapTop: wrapRect.top,
+    }
+    event.currentTarget.setPointerCapture(event.pointerId)
+    setDragging(true)
+  }, [])
+
+  const handleDragMove = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    const origin = dragOriginRef.current
+    if (!origin)
+      return
+
+    const width = popoverRef.current?.offsetWidth ?? 0
+    const height = popoverRef.current?.offsetHeight ?? 0
+    const left = clampValue(
+      origin.left + event.clientX - origin.pointerX,
+      -origin.wrapLeft + POPOVER_VIEWPORT_MARGIN,
+      window.innerWidth - origin.wrapLeft - width - POPOVER_VIEWPORT_MARGIN,
+    )
+    const top = clampValue(
+      origin.top + event.clientY - origin.pointerY,
+      -origin.wrapTop + POPOVER_VIEWPORT_MARGIN,
+      window.innerHeight - origin.wrapTop - height - POPOVER_VIEWPORT_MARGIN,
+    )
+    setPopoverPos({ left, top })
+  }, [])
+
+  const handleDragEnd = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!dragOriginRef.current)
+      return
+    dragOriginRef.current = null
+    setDragging(false)
+    try {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    }
+    catch {
+      // Capture was already released; nothing to do
+    }
   }, [])
 
   const isCollectActive = collectState !== "idle"
@@ -294,23 +386,50 @@ export function SelectionToolbar() {
       {/* Translation result popover */}
       {showTranslation && (
         <div
+          ref={popoverRef}
           style={{
             position: "absolute",
-            top: "calc(100% + 4px)",
-            left: "50%",
-            transform: "translateX(-50%)",
+            ...(popoverPos
+              ? { left: `${popoverPos.left}px`, top: `${popoverPos.top}px` }
+              : { top: "calc(100% + 4px)", left: "50%", transform: "translateX(-50%)" }),
             minWidth: "240px",
             maxWidth: "380px",
+            maxHeight: "65vh",
             background: "#fff",
             borderRadius: "15px",
             boxShadow: "0 4px 20px rgba(0,0,0,0.08), 0 2px 8px rgba(0,0,0,0.04)",
-            overflow: "hidden",
+            // Any non-visible overflow clips children to the rounded corners;
+            // vertical scroll keeps long analysis results within the viewport.
+            // The scrollbar itself is styled below so it never squares off the
+            // rounded right corners.
+            overflowX: "hidden",
+            overflowY: "auto",
             color: "#1f2937",
             wordBreak: "break-word",
             pointerEvents: "auto",
           }}
-          className="notranslate"
+          className={`notranslate vibe-selection-popover${dragging ? " vibe-selection-popover-dragging" : ""}`}
         >
+          {/* Drag handle */}
+          <div
+            onPointerDown={handleDragStart}
+            onPointerMove={handleDragMove}
+            onPointerUp={handleDragEnd}
+            onPointerCancel={handleDragEnd}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              height: "16px",
+              paddingTop: "2px",
+              cursor: dragging ? "grabbing" : "grab",
+              touchAction: "none",
+              userSelect: "none",
+            }}
+            title="按住拖动"
+          >
+            <span style={{ width: "36px", height: "4px", borderRadius: "999px", background: "#d1d5db" }} />
+          </div>
           {translating
             ? (
                 <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "14px 18px", fontSize: "14px" }}>
@@ -420,15 +539,13 @@ export function SelectionToolbar() {
                     </div>
                   </>
                 )
-              : (
-                  <div style={{ padding: "14px 18px", fontSize: "14px", lineHeight: 1.5, whiteSpace: "pre-wrap" }}>
-                    {translation}
-                  </div>
-                )}
+              : translation
+                ? <MarkdownContent content={translation} />
+                : null}
         </div>
       )}
 
-      {/* Keyframes for spinner and bounce */}
+      {/* Keyframes for spinner and bounce + popover scrollbar */}
       <style>
         {`
         @keyframes vibe-reading-spin {
@@ -439,6 +556,23 @@ export function SelectionToolbar() {
           30% { transform: scale(1.15); }
           60% { transform: scale(0.95); }
           100% { transform: scale(1); }
+        }
+        .vibe-selection-popover {
+          scrollbar-width: thin;
+          scrollbar-color: rgba(0, 0, 0, 0.22) transparent;
+        }
+        .vibe-selection-popover::-webkit-scrollbar {
+          width: 6px;
+        }
+        .vibe-selection-popover::-webkit-scrollbar-track {
+          background: transparent;
+        }
+        .vibe-selection-popover::-webkit-scrollbar-thumb {
+          background: rgba(0, 0, 0, 0.18);
+          border-radius: 3px;
+        }
+        .vibe-selection-popover-dragging {
+          cursor: grabbing;
         }
       `}
       </style>

@@ -83,6 +83,15 @@ export default antfu({
   },
 ], [
   {
+    // Prompt template assets are LLM inputs rather than documents — keep the
+    // author's heading structure (multiple H1 sections) intact.
+    files: ["src/utils/prompts/**/*.md"],
+    rules: {
+      "markdown/no-multiple-h1": "off",
+    },
+  },
+], [
+  {
     ignores: ["**/*.md/**", ".agents/**/*", ".claude/**/*", ".codex/**/*", ".cursor/**/*"],
   },
 ]).append({

@@ -7,7 +7,7 @@ import { queryWordDefinitionStructured } from "@/utils/dict/dict-api"
 import { executeTranslate } from "@/utils/host/translate/execute-translate"
 import { logger } from "@/utils/logger"
 import { onMessage } from "@/utils/message"
-import { getTranslatePromptFromConfig } from "@/utils/prompts/translate"
+import { getSelectionTranslatePrompt } from "@/utils/prompts/translate"
 
 /**
  * Translates a single selected text string.
@@ -52,12 +52,14 @@ async function translateSelectedText(data: { text: string, sourceLanguageCode?: 
   }
 
   try {
+    // Selection translate uses its own built-in analysis prompt (English ->
+    // Chinese), independent from the page-translation custom prompts config.
     const translatedText = await executeTranslate(
       data.text,
       langConfig,
       providerConfig,
-      async (targetLang: string, input: string, options?: any) => {
-        return getTranslatePromptFromConfig(config.translate, targetLang, input, options)
+      async (_targetLang: string, input: string) => {
+        return getSelectionTranslatePrompt(input)
       },
     )
     return translatedText
