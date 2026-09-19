@@ -1,8 +1,7 @@
 import type { WordDefinition } from "@/types/vocabulary"
 
+import { getBackendBaseUrl } from "@/utils/config/backend"
 import { logger } from "@/utils/logger"
-
-const DICT_API_BASE_URL = "http://127.0.0.1:8000"
 
 interface Phonetics {
   uk?: string
@@ -51,7 +50,8 @@ function extractFirstWord(text: string): string | null {
  * Returns the raw JSON response or null on failure.
  */
 async function fetchWord(word: string): Promise<WordResponse | null> {
-  const url = `${DICT_API_BASE_URL}/api/word/${encodeURIComponent(word)}`
+  const baseUrl = await getBackendBaseUrl()
+  const url = `${baseUrl}/api/word/${encodeURIComponent(word)}`
 
   try {
     const response = await fetch(url)

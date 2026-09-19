@@ -1,5 +1,6 @@
 import type { Config } from "@/types/config/config"
 import type { PageTranslateRange } from "@/types/config/translate"
+import { DEFAULT_BACKEND_BASE_URL } from "./backend"
 import { DEFAULT_TRANSLATE_PROMPTS_CONFIG } from "./prompt"
 import { DEFAULT_PROVIDER_CONFIG_LIST } from "./providers"
 import { DEFAULT_AUTO_TRANSLATE_SHORTCUT_KEY, DEFAULT_BATCH_CONFIG, DEFAULT_MIN_CHARACTERS_PER_NODE, DEFAULT_MIN_WORDS_PER_NODE, DEFAULT_PRELOAD_MARGIN, DEFAULT_PRELOAD_THRESHOLD, DEFAULT_REQUEST_CAPACITY, DEFAULT_REQUEST_RATE } from "./translate"
@@ -19,6 +20,9 @@ export const DEFAULT_CONFIG: Config = {
     level: "intermediate",
   },
   providersConfig: DEFAULT_PROVIDER_CONFIG_LIST,
+  backend: {
+    baseUrl: DEFAULT_BACKEND_BASE_URL,
+  },
   translate: {
     providerId: "openai-default",
     mode: "bilingual",

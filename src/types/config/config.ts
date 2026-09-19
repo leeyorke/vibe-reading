@@ -1,7 +1,9 @@
 import { z } from "zod"
 
 import { langCodeISO6393Schema, langLevel } from "@/definitions"
+import { DEFAULT_BACKEND_BASE_URL } from "@/utils/constants/backend"
 import { FEATURE_PROVIDER_DEFS } from "@/utils/constants/feature-providers"
+import { backendConfigSchema } from "./backend"
 import { providersConfigSchema } from "./provider"
 import { translateConfigSchema } from "./translate"
 
@@ -21,6 +23,7 @@ export const configSchema = z.object({
   language: languageSchema,
   providersConfig: providersConfigSchema,
   translate: translateConfigSchema,
+  backend: backendConfigSchema.default({ baseUrl: DEFAULT_BACKEND_BASE_URL }),
 }).superRefine((data, ctx) => {
   const providerIdsSet = new Set(data.providersConfig.map(p => p.id))
 

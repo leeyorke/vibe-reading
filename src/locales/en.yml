@@ -141,6 +141,14 @@ options:
       system: System
       light: Light
       dark: Dark
+    backend:
+      title: Backend Service
+      description: Address of the companion backend that powers word lookup and the vocabulary book. Leave empty to use the default.
+      baseUrl:
+        title: Base URL
+      saved: Backend address updated
+      reset: Backend address reset to default
+      error: Please enter a valid URL, e.g. http://127.0.0.1:8000
     featureProviders:
       title: Feature Providers
       description: Choose which provider to use for each feature

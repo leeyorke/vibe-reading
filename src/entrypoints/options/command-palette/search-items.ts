@@ -32,6 +32,13 @@ export const SEARCH_ITEMS: SearchItem[] = [
     pageKey: "options.general.title",
   },
   {
+    sectionId: "backend-service",
+    route: "/",
+    titleKey: "options.general.backend.title",
+    descriptionKey: "options.general.backend.description",
+    pageKey: "options.general.title",
+  },
+  {
     sectionId: "api-providers",
     route: "/api-providers",
     titleKey: "options.apiProviders.title",

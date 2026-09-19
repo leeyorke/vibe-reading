@@ -1,6 +1,7 @@
 import { i18n } from "@/utils/i18n"
 import { PageLayout } from "../../components/page-layout"
 import AppearanceSettings from "./appearance-settings"
+import { BackendService } from "./backend-service"
 import FeatureProvidersConfig from "./feature-providers-config"
 import InterfaceLanguageSettings from "./interface-language-settings"
 
@@ -10,6 +11,7 @@ export function GeneralPage() {
       <FeatureProvidersConfig />
       <InterfaceLanguageSettings />
       <AppearanceSettings />
+      <BackendService />
     </PageLayout>
   )
 }

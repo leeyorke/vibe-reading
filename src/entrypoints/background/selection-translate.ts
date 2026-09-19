@@ -11,7 +11,7 @@ import { getSelectionTranslatePrompt } from "@/utils/prompts/translate"
 
 /**
  * Translates a single selected text string.
- * - Single word → looks up via dictionary REST API (http://127.0.0.1:8000/api/word/{word}).
+ * - Single word → looks up via the configured dictionary REST API (`{baseUrl}/api/word/{word}`).
  * - Multiple words → uses the configured LLM/translate provider (existing AI translation).
  * Falls back to AI translation if the dictionary API returns no result.
  */

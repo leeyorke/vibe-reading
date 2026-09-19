@@ -141,6 +141,14 @@ options:
       system: 跟随系统
       light: 浅色
       dark: 深色
+    backend:
+      title: 后端服务
+      description: 提供单词查询和生词本功能的后端服务地址。留空则使用默认地址。
+      baseUrl:
+        title: Base URL
+      saved: 后端地址已更新
+      reset: 后端地址已重置为默认值
+      error: 请输入有效的 URL，例如 http://127.0.0.1:8000
     featureProviders:
       title: 功能提供商
       description: 为每个功能选择使用的提供商

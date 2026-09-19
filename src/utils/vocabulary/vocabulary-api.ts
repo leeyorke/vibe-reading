@@ -4,9 +4,8 @@ import type {
   VocabularyQuery,
   VocabularyWord,
 } from "@/types/vocabulary"
+import { getBackendBaseUrl } from "@/utils/config/backend"
 import { logger } from "@/utils/logger"
-
-const VOCABULARY_API_BASE_URL = "http://127.0.0.1:8000"
 
 /** Backend snake_case response shape */
 interface VocabularyWordResponse {
@@ -80,7 +79,8 @@ function toUpdatePayload(updates: UpdateVocabularyWordPayload["updates"]): Recor
  * Returns the word's id.
  */
 export async function apiAddWord(data: AddVocabularyWordPayload): Promise<string> {
-  const res = await fetch(`${VOCABULARY_API_BASE_URL}/api/vocabulary`, {
+  const baseUrl = await getBackendBaseUrl()
+  const res = await fetch(`${baseUrl}/api/vocabulary`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(toAddPayload(data)),
@@ -99,6 +99,7 @@ export async function apiAddWord(data: AddVocabularyWordPayload): Promise<string
  * List vocabulary words with pagination, sorting, and search via backend API.
  */
 export async function apiGetWords(data: VocabularyQuery): Promise<{ words: VocabularyWord[], total: number }> {
+  const baseUrl = await getBackendBaseUrl()
   const params = new URLSearchParams({
     limit: String(data.limit ?? 50),
     offset: String(data.offset ?? 0),
@@ -109,7 +110,7 @@ export async function apiGetWords(data: VocabularyQuery): Promise<{ words: Vocab
     params.set("search", data.search)
   }
 
-  const res = await fetch(`${VOCABULARY_API_BASE_URL}/api/vocabulary?${params}`)
+  const res = await fetch(`${baseUrl}/api/vocabulary?${params}`)
 
   if (!res.ok) {
     throw new Error(`[Vocabulary] Get words failed: HTTP ${res.status}`)
@@ -126,7 +127,8 @@ export async function apiGetWords(data: VocabularyQuery): Promise<{ words: Vocab
  * Update a vocabulary word via backend API.
  */
 export async function apiUpdateWord(data: UpdateVocabularyWordPayload): Promise<void> {
-  const res = await fetch(`${VOCABULARY_API_BASE_URL}/api/vocabulary/${data.id}`, {
+  const baseUrl = await getBackendBaseUrl()
+  const res = await fetch(`${baseUrl}/api/vocabulary/${data.id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(toUpdatePayload(data.updates)),
@@ -143,7 +145,8 @@ export async function apiUpdateWord(data: UpdateVocabularyWordPayload): Promise<
  * Delete a vocabulary word via backend API.
  */
 export async function apiDeleteWord(id: string): Promise<void> {
-  const res = await fetch(`${VOCABULARY_API_BASE_URL}/api/vocabulary/${id}`, {
+  const baseUrl = await getBackendBaseUrl()
+  const res = await fetch(`${baseUrl}/api/vocabulary/${id}`, {
     method: "DELETE",
   })
 
@@ -159,8 +162,9 @@ export async function apiDeleteWord(id: string): Promise<void> {
  * Sends PATCH to update star, then POST to increment review count.
  */
 export async function apiMarkWordReviewed(wordId: string, star: 1 | 2 | 3 | 4 | 5): Promise<void> {
+  const baseUrl = await getBackendBaseUrl()
   // Update star rating
-  const patchRes = await fetch(`${VOCABULARY_API_BASE_URL}/api/vocabulary/${wordId}`, {
+  const patchRes = await fetch(`${baseUrl}/api/vocabulary/${wordId}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ star }),
@@ -171,7 +175,7 @@ export async function apiMarkWordReviewed(wordId: string, star: 1 | 2 | 3 | 4 | 
   }
 
   // Increment review count
-  const reviewRes = await fetch(`${VOCABULARY_API_BASE_URL}/api/vocabulary/${wordId}/review`, {
+  const reviewRes = await fetch(`${baseUrl}/api/vocabulary/${wordId}/review`, {
     method: "POST",
   })
 
