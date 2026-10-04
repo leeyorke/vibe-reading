@@ -168,6 +168,85 @@ options:
         confirm: 确认
         cancel: 取消
         description: 此操作将清理所有翻译缓存。此操作无法撤销。
+  review:
+    nav: 复习提醒
+    title: 复习提醒
+    enabled:
+      title: 主动推送复习
+      description: 按艾宾浩斯遗忘曲线把复习过的单词推送到系统通知中心。点击通知打开复习卡片，里面有全新语境的例句、发音和固定搭配。
+      enable: 启用主动推送
+      enableDescription: 到点自动推送并自动推进阶段；在卡片上评分只用于微调某个单词的阶段。
+    status:
+      title: 复习队列
+      description: 只要某个单词被你复习过一次，就会自动进入队列。
+      queueSize: 队列中
+      todayCount: 今日已推
+      pendingCount: 待评分
+      graduated: 已完成
+      nextDueAt: 下次推送
+      lastSyncAt: 上次同步：$1
+      empty: 暂无待推送
+      never: 从未
+      permissionDenied: 此扩展的通知被浏览器拦截了。请在浏览器的网站设置里允许通知，否则无法弹出提醒。
+      sync: 立即同步
+      syncing: 同步中...
+      syncDone: 复习队列已同步
+      syncFailed: 复习队列同步失败
+      pushNow: 立即推送一条
+      pushNowDescription: 立刻跑一次调度，不用等艾宾浩斯间隔。免打扰时段和每日上限照常生效。
+      pushing: 推送中...
+      pushDone: 已推送 $1 条
+      pushFailed: 立即推送失败
+      stoppedDisabled: 主动推送没开，先把开关打开
+      stoppedQuietHours: 现在处于免打扰时段，推送已推迟到时段结束
+      stoppedDailyCap: 今天的推送额度已经用完了，明天再来
+      stoppedPerWordCap: 到期的词今天都已经推过了，等明天
+      stoppedNothingDue: 队列里没有到期的词。点「立即同步」把生词本拉进来
+      openCard: 打开复习卡片
+      openCardDescription: 直接打开卡片页。里面会显示下一个待评价的词，没有就显示空状态
+      clear: 清空队列
+      clearDone: 复习队列已清空
+      clearFailed: 复习队列清空失败
+      clearConfirm: 确定清空复习队列吗？下次同步时单词会重新入队，此操作无法撤销。
+      cancel: 取消
+      confirm: 确认
+    cadence:
+      title: 复习节奏
+      description: 单词会在下列每个间隔后再次提醒，每次上升一档，走完整个阶梯即视为完成。
+    frequency:
+      title: 推送频率
+      description: 限制提醒数量，避免通知中心被刷屏。
+      maxPerDay: 每天最多推送
+      maxPerWordPerDay: 每个单词每天最多推送
+    quietHours:
+      title: 免打扰时段
+      description: 在免打扰时段内到期的提醒会推迟到时段结束之后再发送。
+      enable: 启用免打扰时段
+      enableDescription: 支持跨午夜，例如 23:00 到 08:00 会被正确识别。
+      start: 开始时间
+      end: 结束时间
+    example:
+      title: 例句生成
+      description: 每次推送都把单词放进一个全新的语境里，让你在真实用法中重新遇到它，而不是反复看同一句话。
+      enable: 每次推送都生成新例句
+      noProvider: 尚未配置翻译服务商
+    notify:
+      quickReview: 快速复习
+    rate:
+      remembered: 记住了
+      forgotten: 没记住
+    card:
+      meaning: 释义
+      collocations: 固定搭配
+      progress: 第 $1 档 / 共 $2 档
+      remaining: 还剩 $1 个
+      speak: 朗读
+      speakFailed: 发音服务没有响应，请稍后再试。
+      doneTitle: 全部复习完毕
+      doneDescription: 推送给你的单词都已评分。下一个提醒会按自己的节奏到来。
+      errorTitle: 没有可复习的词
+      errorDescription: 这个单词已经不在你的复习队列里了。
+      openSettings: 打开复习设置
   translation:
     title: 翻译
     requestQueueConfig:

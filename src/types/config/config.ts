@@ -5,6 +5,7 @@ import { DEFAULT_BACKEND_BASE_URL } from "@/utils/constants/backend"
 import { FEATURE_PROVIDER_DEFS } from "@/utils/constants/feature-providers"
 import { backendConfigSchema } from "./backend"
 import { providersConfigSchema } from "./provider"
+import { reviewConfigSchema } from "./review"
 import { translateConfigSchema } from "./translate"
 
 export const uiLocaleSchema = z.enum(["en", "zh-CN"])
@@ -23,10 +24,15 @@ export const configSchema = z.object({
   language: languageSchema,
   providersConfig: providersConfigSchema,
   translate: translateConfigSchema,
+  review: reviewConfigSchema.prefault({}),
   backend: backendConfigSchema.default({ baseUrl: DEFAULT_BACKEND_BASE_URL }),
 }).superRefine((data, ctx) => {
   const providerIdsSet = new Set(data.providersConfig.map(p => p.id))
 
+  // `review` is intentionally absent from FEATURE_PROVIDER_DEFS: it reuses
+  // `translate.providerId` instead of owning a provider slot. Adding a feature
+  // key here would make configs that predate the review feature fail this
+  // refinement, and `initializeConfig` resets a failing config wholesale.
   for (const def of Object.values(FEATURE_PROVIDER_DEFS)) {
     const providerId = def.getProviderId(data)
 

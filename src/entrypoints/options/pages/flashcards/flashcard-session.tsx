@@ -3,6 +3,8 @@ import { Icon } from "@iconify/react"
 import { useCallback, useState } from "react"
 import { Button } from "@/components/ui/base-ui/button"
 import { sendMessage } from "@/utils/message"
+import { parseCardDefinitionLines, parsePhoneticLine, withDefinitionLineKeys } from "@/utils/review/definition-lines"
+import { cn } from "@/utils/styles/utils"
 import { PageLayout } from "../../components/page-layout"
 import { StarRating } from "../vocabulary/star-rating"
 
@@ -12,6 +14,64 @@ interface ReviewStat {
   word: VocabularyWord
   oldStar: number
   newStar: number
+}
+
+function FlashcardDefinition({ word, translation, contextText }: { word: string, translation: string, contextText?: string }) {
+  const lines = withDefinitionLineKeys(parseCardDefinitionLines(translation, word))
+
+  return (
+    <div className="w-full min-w-0 text-left">
+      <h3 className="mb-3 text-xl font-semibold tracking-tight">{word}</h3>
+
+      <div className="space-y-1.5 text-sm leading-6">
+        {lines.length > 0
+          ? lines.map(({ line, key }) => {
+              const phoneticParts = parsePhoneticLine(line)
+              if (phoneticParts) {
+                return (
+                  <div key={key} className="flex flex-wrap items-center gap-x-4 gap-y-1 text-muted-foreground">
+                    {phoneticParts.map(part => (
+                      <span key={part.label} className="inline-flex items-center gap-1">
+                        <span className="font-medium text-foreground/80">{part.label}</span>
+                        <span className="font-serif">{part.value}</span>
+                      </span>
+                    ))}
+                  </div>
+                )
+              }
+
+              const senseMatch = line.match(/^((?:\d+|❑)\.)\s+/)
+              if (senseMatch) {
+                const definition = line.slice(senseMatch[0].length)
+                return (
+                  <div
+                    key={key}
+                    className="flex min-w-0 items-start gap-2 [overflow-wrap:anywhere]"
+                  >
+                    <span className="shrink-0 font-medium text-brand">{senseMatch[1]}</span>
+                    <span className="min-w-0 whitespace-pre-wrap">{definition}</span>
+                  </div>
+                )
+              }
+
+              return (
+                <p key={key} className="whitespace-pre-wrap [overflow-wrap:anywhere]">
+                  {line}
+                </p>
+              )
+            })
+          : (
+              <p className="text-muted-foreground">暂无释义</p>
+            )}
+      </div>
+
+      {contextText && contextText !== word && (
+        <p className="mt-3 border-t pt-3 text-xs leading-5 text-muted-foreground/60 italic [overflow-wrap:anywhere]">
+          {contextText}
+        </p>
+      )}
+    </div>
+  )
 }
 
 export function FlashcardsPage() {
@@ -111,20 +171,21 @@ export function FlashcardsPage() {
 
           {/* Card */}
           <div
-            className="flex h-48 w-full cursor-pointer items-center justify-center rounded-xl border bg-card p-6 shadow-sm transition-all hover:shadow-md"
+            className={cn(
+              "flex h-96 w-full cursor-pointer rounded-xl border bg-card p-6 shadow-sm transition-all hover:shadow-md",
+              flipped
+                ? "flashcard-scroll items-start justify-start overflow-y-auto"
+                : "items-center justify-center",
+            )}
             onClick={handleFlip}
           >
             {flipped
               ? (
-                  <div className="flex flex-col items-center gap-3 text-center">
-                    <span className="text-xl font-semibold">{currentCard.word}</span>
-                    <span className="text-muted-foreground">{currentCard.translation}</span>
-                    {currentCard.contextText && currentCard.contextText !== currentCard.word && (
-                      <span className="text-muted-foreground/60 text-xs italic max-w-xs">
-                        {currentCard.contextText}
-                      </span>
-                    )}
-                  </div>
+                  <FlashcardDefinition
+                    word={currentCard.word}
+                    translation={currentCard.translation}
+                    contextText={currentCard.contextText}
+                  />
                 )
               : (
                   <span className="text-2xl font-bold">{currentCard.word}</span>

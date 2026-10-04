@@ -11,6 +11,7 @@ const TranslationPage = lazy(() => import("./pages/translation").then(module => 
 const ConfigPage = lazy(() => import("./pages/config").then(module => ({ default: module.ConfigPage })))
 const VocabularyPage = lazy(() => import("./pages/vocabulary/vocabulary-page").then(module => ({ default: module.VocabularyPage })))
 const FlashcardsPage = lazy(() => import("./pages/flashcards/flashcard-session").then(module => ({ default: module.FlashcardsPage })))
+const ReviewPage = lazy(() => import("./pages/review").then(module => ({ default: module.ReviewPage })))
 
 const ROUTE_COMPONENTS: Record<RoutePath, ComponentType> = {
   "/": GeneralPage,
@@ -19,6 +20,7 @@ const ROUTE_COMPONENTS: Record<RoutePath, ComponentType> = {
   "/config": ConfigPage,
   "/vocabulary": VocabularyPage,
   "/flashcards": FlashcardsPage,
+  "/review": ReviewPage,
 }
 
 function RouteLoadingFallback() {

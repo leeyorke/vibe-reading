@@ -50,6 +50,10 @@
 - **`src/entrypoints/host.content/selection-toolbar/`** — 划线翻译浮动工具栏: 选区监听 Hook、工具栏组件（翻译 + 收藏）、Shadow DOM 挂载
 - **`src/entrypoints/background/selection-translate.ts`** — 选中文本翻译处理器（单条翻译，不走批处理队列）
 - **`src/entrypoints/background/vocabulary-handlers.ts`** — 生词本 CRUD + 闪卡会话消息处理器
+- **`src/entrypoints/background/review-scheduler.ts`** — 艾宾浩斯主动推送:自重排单次 `browser.alarms` (当 `periodInMinutes` 被浏览器强制 ≥1 分钟时,用 `when` 精确唤醒) → `runReviewTick()` → 系统通知;注册 `notifications.onClicked / onClosed`
+- **`src/entrypoints/review-card/`** — 独立复习卡片页 (`review-card.html`): 从通知点击打开，展示单词/音标/例句/中文/固定搭配 + 「记住了/没记住」
+- **`src/utils/review/`** — SRS 纯逻辑 (`schedule.ts`: 阶段推进/静默期/配额)、本地状态 (`store.ts`)、队列同步 (`queue-sync.ts`)、卡片组装 (`review-card.ts`)、例句生成 (`example-generator.ts`)、通知构造 (`notify.ts`)、朗读 (`speech.ts`)、词典文本解析 (`definition-lines.ts`)
+- **`src/entrypoints/background/review-handlers.ts`** — `/review` 选项页与复习卡片页的消息处理器 (状态/立即同步/清空队列/取卡片/评分)
 - **`src/entrypoints/options/pages/vocabulary/`** — 生词本管理页: 搜索、排序、分页、星级修改、删除
 - **`src/entrypoints/options/pages/flashcards/`** — 闪卡复习页: 正面单词 → 翻转显示译文 → 1-5星评分 → 完成统计
 
@@ -68,6 +72,13 @@
 - **划线翻译**: 选区监听 (`useTextSelection` Hook) + `sendMessage("translateSelectedText")` → background 直接调用 `aiTranslate()`（不走批处理队列）
 - **生词本收藏**: `sendMessage("addVocabularyWord")` → background 写入 Dexie `vocabularyWords` 表（同词+同URL去重），默认 `star=3`
 - **闪卡复习**: `sendMessage("getFlashcardSession")` → weighted random 抽取 10 个单词（低星高权重），`markWordReviewed` 更新星级和复习次数
+- **主动推送复习 (Ebbinghaus)**: SRS 状态**只存本地** `chrome.storage.local` (`local:review:*`)，因为后端 `/api/vocabulary` 没有「上次推送时间」字段；推送走词条快照，不依赖后端在线。间隔阶梯 `SRS_INTERVALS_MINUTES` = 5m/30m/12h/1d/2d/4d/7d/15d，到点自动推进 (`advanceStage`)，在卡片页点「记住了/没记住」只做 ±2/−1 修正。例句复用 `config.translate.providerId`（**不新增 `FEATURE_KEY`**，否则 `configSchema.superRefine` 会让老配置解析失败、`initializeConfig` 直接重置整个配置）；新配置块用 `.prefault({})` 而非 `.default({})`，同样是为了老配置兼容
+- **通知只是门铃，不带按钮**: Windows 通知中心折叠态只渲染一行标题，任何按钮都点不到。所以通知只做「提醒 + 点击开卡片页」这一个动作，评分按钮放在卡片页底部。卡片页通过 `openReviewCard` 复用同一个标签页（`tabs.query` + `tabs.update` + `windows.update`），一天推十几条也不会堆成一堆标签
+- **复习会话走 `pendingReview` 而非「已到期」**: 词条在到期那一刻才被推送，所以卡片推进到下一个词时，其他词**一个都没到期**——按 `nextDueAt <= now` 找下一个词会让会话立刻死胡同。推送时置 `entry.pendingReview = true`，评分时置 `false`，卡片按 `lastNotifiedAt` 升序取下一个待评价词
+- **例句 / 固定搭配 / 例句翻译在推送时一次 LLM 调用产出**: 卡片页因此不需要任何网络等待或加载态。prompt 要求严格 JSON，用 `parseExamplePayload` 容错解析（剥 ```json 围栏、取首尾花括号、逐字段校验），任一步失败整包丢弃并降级到收藏时的原句
+- **WXT storage key 必须带区域前缀** (`local:` / `session:`)，裸 key 会被 `resolveKey` 当成非法 area 抛错
+- **卡片页发音走 Google Translate 的 TTS 端点** (`translate.google.com/translate_tts`, `client=gtx`)，请求放在 background 里做并缓存成 `data:` URL 返回。不要退回 `speechSynthesis`——它静默依赖系统已安装的英语语音包，纯净的 Windows 上没有，按钮点了等于没点。**微软那条走不通**：Edge readaloud 端点会拒绝所有缺少 `Sec-MS-GEC` 令牌的请求，而该令牌由 Windows machine id 推导，属于反自动化控制而非接口怪癖，别去绕
+- **`/review` 设置页有「立即推送一条」和「打开复习卡片」两个调试入口**，别删：否则卡片页只能等推送才能看。`runReviewNow` 直接调 alarm 调的同一个 `runReviewTick()`，**没有**绕过静默期/每日上限的强制推送路径——测试不该偷偷破坏 SRS 阶梯
 - **React**: 函数组件 + hooks, JSX 使用 `react-jsx` transform, `useCallback`/`useMemo` 适度使用
 - **错误边界**: `react-error-boundary` + 自定义 `RecoveryBoundary` 组件
 

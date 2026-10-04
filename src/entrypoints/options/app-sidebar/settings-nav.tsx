@@ -66,6 +66,12 @@ export function SettingsNav() {
                 <span>闪卡</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton render={<Link to="/review" />} isActive={pathname === "/review"}>
+                <Icon icon="tabler:bell-ringing" />
+                <span>{i18n.t("options.review.nav")}</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
           </SidebarMenu>
         </SidebarGroupContent>
       </SidebarGroup>

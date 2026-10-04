@@ -56,6 +56,18 @@ export const DEFAULT_CONFIG: Config = {
       customCSS: null,
     },
   },
+  review: {
+    enabled: false,
+    generateExample: true,
+    maxPerDay: 8,
+    maxPerWordPerDay: 3,
+    graduatedAction: "stop",
+    quietHours: {
+      enabled: true,
+      start: "23:00",
+      end: "08:00",
+    },
+  },
 }
 
 export const PAGE_TRANSLATE_RANGE_ITEMS: Record<

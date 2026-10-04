@@ -64,6 +64,12 @@ export interface WordDefinition {
   pos: string
   senses: Array<{
     number: string
+    /** English gloss, absent for senses the dictionary only defines in Chinese. */
+    englishDefinition?: string
     chineseDefinition: string
+    examples?: Array<{
+      text: string
+      chinese: string
+    }>
   }>
 }

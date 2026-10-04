@@ -168,6 +168,86 @@ options:
         confirm: Confirm
         cancel: Cancel
         description: This operation will clear all translation cache. This action cannot be undone.
+  review:
+    nav: Review
+    title: Review Reminders
+    enabled:
+      title: Active Review Reminders
+      description: Push previously reviewed words to your system notification centre on an Ebbinghaus schedule. Click a reminder to open its review card, where a freshly written example sentence, the pronunciation and the collocations are waiting.
+      enable: Enable reminders
+      enableDescription: Reminders arrive on the schedule below and advance automatically. Rating a word on its card only nudges it up or down the ladder.
+    status:
+      title: Queue
+      description: Words you have already reviewed once are queued automatically.
+      queueSize: In queue
+      todayCount: Sent today
+      pendingCount: Awaiting rating
+      graduated: Completed
+      nextDueAt: Next reminder
+      lastSyncAt: "Last synced: $1"
+      empty: Nothing due
+      never: Never
+      permissionDenied: Notifications are blocked for this extension. Allow them in your browser's site settings, otherwise no reminder can be shown.
+      sync: Sync now
+      syncing: Syncing...
+      syncDone: Review queue synced
+      syncFailed: Could not sync the review queue
+      pushNow: Push one now
+      pushNowDescription: Run the scheduler immediately instead of waiting out an Ebbinghaus interval. Quiet hours and the daily caps still apply.
+      pushing: Pushing...
+      pushDone: Pushed $1
+      pushDeferred: $1 held back by quiet hours or a daily cap
+      pushFailed: Could not push right now
+      stoppedDisabled: Active review is switched off — turn the toggle on first
+      stoppedQuietHours: Quiet hours are active; pushes resume when they end
+      stoppedDailyCap: Today's push budget is already spent — try again tomorrow
+      stoppedPerWordCap: Every due word has already been pushed today
+      stoppedNothingDue: Nothing in the queue is due. Sync to pull in your vocabulary book
+      openCard: Open review card
+      openCardDescription: Open the card page directly. It shows the next word waiting for a rating, or its empty state.
+      clear: Clear queue
+      clearDone: Review queue cleared
+      clearFailed: Could not clear the review queue
+      clearConfirm: Clear the review queue? Words will be picked up again on the next sync. This cannot be undone.
+      cancel: Cancel
+      confirm: Confirm
+    cadence:
+      title: Review Cadence
+      description: A word is reminded again after each of these intervals, moving up one rung per reminder until it completes the ladder.
+    frequency:
+      title: Frequency
+      description: Caps that keep reminders from taking over your notification centre.
+      maxPerDay: Max reminders per day
+      maxPerWordPerDay: Max reminders per word per day
+    quietHours:
+      title: Quiet Hours
+      description: Reminders that come due during quiet hours wait until the window ends.
+      enable: Enable quiet hours
+      enableDescription: Works across midnight, so a window like 23:00 to 08:00 is handled correctly.
+      start: From
+      end: Until
+    example:
+      title: Example Sentences
+      description: Each reminder is backed by a new context, so you re-meet the word the way you would in the wild instead of rereading the same sentence.
+      enable: Write a new example for every reminder
+      noProvider: No translation provider configured
+    notify:
+      quickReview: Quick review
+    rate:
+      remembered: Got it
+      forgotten: Missed it
+    card:
+      meaning: Meaning
+      collocations: Collocations
+      progress: Rung $1 of $2
+      remaining: $1 still waiting
+      speak: Pronounce
+      speakFailed: The voice service did not answer. Try again in a moment.
+      doneTitle: All caught up
+      doneDescription: Every word pushed to you so far has been rated. The next reminder will arrive on its own schedule.
+      errorTitle: Nothing to review
+      errorDescription: This word is no longer in your review queue.
+      openSettings: Open review settings
   translation:
     title: Translation
     requestQueueConfig:

@@ -5,4 +5,5 @@ export const ROUTE_DEFS = [
   { path: "/config" },
   { path: "/vocabulary" },
   { path: "/flashcards" },
+  { path: "/review" },
 ] as const

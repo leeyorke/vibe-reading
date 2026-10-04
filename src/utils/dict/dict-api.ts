@@ -127,6 +127,31 @@ export async function queryWordDefinition(word: string): Promise<string | null> 
 }
 
 /**
+ * Maps the raw dictionary payload onto {@link WordDefinition}.
+ *
+ * A missing gloss or example list is dropped rather than defaulted to `""` so
+ * that the review card can hide those rows instead of rendering blanks.
+ */
+function toWordDefinition(data: WordResponse): WordDefinition {
+  return {
+    headword: data.headword,
+    phoneticUK: data.phonetics.uk,
+    phoneticUS: data.phonetics.us,
+    pos: data.pos,
+    senses: data.senses.map(s => ({
+      number: s.number,
+      ...(s.definition && { englishDefinition: s.definition }),
+      chineseDefinition: s.chinese_definition,
+      ...(s.examples.length > 0 && {
+        examples: s.examples
+          .filter(e => e.text?.trim())
+          .map(e => ({ text: e.text, chinese: e.chinese ?? "" })),
+      }),
+    })),
+  }
+}
+
+/**
  * Queries the dictionary API for a word and returns structured data.
  * Returns null if the word is not found or the API is unreachable.
  */
@@ -142,14 +167,25 @@ export async function queryWordDefinitionStructured(word: string): Promise<WordD
     return null
   }
 
-  return {
-    headword: data.headword,
-    phoneticUK: data.phonetics.uk,
-    phoneticUS: data.phonetics.us,
-    pos: data.pos,
-    senses: data.senses.map(s => ({
-      number: s.number,
-      chineseDefinition: s.chinese_definition,
-    })),
+  return toWordDefinition(data)
+}
+
+/**
+ * Same as {@link queryWordDefinitionStructured} but without shape extraction.
+ *
+ * Vocabulary entries can be multi-word phrases, which `extractFirstWord` would
+ * truncate to their first token and silently look up a different word.
+ */
+export async function queryWordDefinitionExact(word: string): Promise<WordDefinition | null> {
+  const cleanWord = word.trim()
+  if (!cleanWord) {
+    return null
   }
+
+  const data = await fetchWord(cleanWord)
+  if (!data) {
+    return null
+  }
+
+  return toWordDefinition(data)
 }
