@@ -204,6 +204,18 @@ export async function runReviewTick(): Promise<ReviewTickOutcome> {
 export function setupReviewScheduler(): void {
   void (async () => {
     try {
+      const config = await getLocalConfig()
+      if (!config?.review.enabled) {
+        // Feature dark: clear whatever alarm an earlier session left behind,
+        // then stop. Syncing here would hit the backend on every worker
+        // wake-up — and the worker wakes for translation messages too, so a
+        // disabled feature would put a vocabulary fetch in front of every
+        // dictionary lookup. The first sync after enabling happens on the
+        // next wake, or from the /review page's manual sync.
+        await browser.alarms.clear(REVIEW_TICK_ALARM)
+        return
+      }
+
       // Picks up words reviewed since the last sync — including the very first
       // sync after the feature is enabled — so a newly reviewable word cannot
       // sit unnoticed behind an alarm aimed at an older due time.

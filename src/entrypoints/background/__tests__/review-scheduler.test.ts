@@ -525,4 +525,20 @@ describe("setupReviewScheduler", () => {
     await vi.waitFor(() => expect(alarmsClearMock).toHaveBeenCalledWith(REVIEW_TICK_ALARM))
     expect(alarmsCreateMock).not.toHaveBeenCalled()
   })
+
+  it("leaves the backend alone while the feature is off", async () => {
+    // The worker wakes for translation messages too, so a disabled feature
+    // must not put a vocabulary fetch in front of every dictionary lookup.
+    await storage.setItem(`local:${CONFIG_STORAGE_KEY}`, makeConfig({ enabled: false }))
+    setupReviewScheduler()
+
+    await vi.waitFor(() => expect(alarmsClearMock).toHaveBeenCalledWith(REVIEW_TICK_ALARM))
+    expect(syncReviewQueueMock).not.toHaveBeenCalled()
+  })
+
+  it("syncs the queue on startup while the feature is on", async () => {
+    setupReviewScheduler()
+
+    await vi.waitFor(() => expect(syncReviewQueueMock).toHaveBeenCalledTimes(1))
+  })
 })
