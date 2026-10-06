@@ -11,6 +11,7 @@ import { proxyFetch } from "./proxy-fetch"
 import { setupReviewMessageHandlers } from "./review-handlers"
 import { setupReviewScheduler } from "./review-scheduler"
 import { setupSelectionTranslateHandler } from "./selection-translate"
+import { setupSpeechMessageHandlers } from "./speech-handlers"
 import { setUpWebPageTranslationQueue } from "./translation-queues"
 import { translationMessage } from "./translation-signal"
 import { setupVocabularyMessageHandlers } from "./vocabulary-handlers"
@@ -54,6 +55,9 @@ export default defineBackground({
 
     // Handle vocabulary and flashcard message requests
     setupVocabularyMessageHandlers()
+
+    // Pronunciation for the review card page and the selection toolbar
+    setupSpeechMessageHandlers()
 
     // Ebbinghaus push-review: a self-rescheduling alarm that notifies the OS
     // when a previously reviewed word is due for another look.

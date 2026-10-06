@@ -111,6 +111,13 @@ export async function bootstrapHostContent(ctx: ContentScriptContext, initialCon
 
   // Only the top frame should detect and set language to avoid race conditions from iframes
   if (window === window.top) {
-    await detectAndReportPageLanguage(window.location.href)
+    try {
+      await detectAndReportPageLanguage(window.location.href)
+    }
+    catch (error) {
+      // The extension can be reloaded between the listeners above and this
+      // call; a dead context must not take the rest of the bootstrap with it.
+      logger.error("Failed to detect page language:", error)
+    }
   }
 }

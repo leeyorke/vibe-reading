@@ -74,6 +74,12 @@ interface ProtocolMap {
   rateReviewWord: (data: { wordId: string, kind: ReviewRatingKind }) => Promise<ReviewCardData | null>
   /** Fetch pronunciation audio for the card; resolves to a playable `data:` URL. */
   synthesizeSpeech: (data: { text: string, sourceLanguage?: string }) => Promise<string>
+  /**
+   * Fetch pronunciation audio as raw bytes for Web Audio playback.
+   * Used by the selection toolbar: a content script cannot play a `data:`/
+   * `blob:` URL without the page's CSP getting a say in it.
+   */
+  synthesizeSpeechAudio: (data: { text: string, sourceLanguage?: string }) => Promise<ArrayBuffer>
   /** Run the scheduler pass immediately instead of waiting for its alarm. */
   runReviewNow: () => Promise<ReviewTickOutcome>
 }

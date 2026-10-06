@@ -8,7 +8,6 @@ import { hasNotificationPermission } from "@/utils/review/notify"
 import { syncReviewQueue } from "@/utils/review/queue-sync"
 import { buildReviewCardData, countPendingEntries, pickNextPendingEntry } from "@/utils/review/review-card"
 import { advanceStage, applyAdvancedStage, getDayKey } from "@/utils/review/schedule"
-import { synthesizeSpeech } from "@/utils/review/speech"
 import {
   loadSchedule,
   loadStats,
@@ -164,21 +163,6 @@ export function setupReviewMessageHandlers() {
     catch (error) {
       logger.error("[Review] runReviewNow failed:", error)
       throw new Error(`立即推送失败: ${error instanceof Error ? error.message : String(error)}`)
-    }
-  })
-
-  /**
-   * Pronunciation runs here rather than in the card page so the audio cache is
-   * shared by every open card and the service worker keeps it for the length of
-   * a session, rather than each page holding its own copy.
-   */
-  onMessage("synthesizeSpeech", async ({ data }) => {
-    try {
-      return await synthesizeSpeech(data)
-    }
-    catch (error) {
-      logger.error("[Review] synthesizeSpeech failed:", error)
-      throw new Error(`发音生成失败: ${error instanceof Error ? error.message : String(error)}`)
     }
   })
 }

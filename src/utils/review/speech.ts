@@ -2,7 +2,8 @@ import { TTS_DEFAULT_LANG } from "@/utils/constants/review"
 import { logger } from "@/utils/logger"
 
 /**
- * Text-to-speech for the review card.
+ * Text-to-speech for anything that has a headword or a sentence to pronounce:
+ * the review card page, and the selection toolbar.
  *
  * The browser's own `speechSynthesis` was dropped first: it silently depends on
  * an English voice pack being installed, and on a bare Windows profile there
@@ -57,9 +58,17 @@ const ISO_639_3_TO_BCP_47: Record<string, string> = {
  * service worker is the only place this runs, so the map lives exactly as long
  * as the worker and dies with it, which is also what we want: holding
  * megabytes of audio is not worth persisting.
+ *
+ * The raw bytes are what is cached; the `data:` URL the review card wants is
+ * derived from them on demand, so one fetch serves both callers.
  */
-const audioCache = new Map<string, string>()
+const audioCache = new Map<string, CachedAudio>()
 const AUDIO_CACHE_LIMIT = 40
+
+interface CachedAudio {
+  buffer: ArrayBuffer
+  mimeType: string
+}
 
 export interface SynthesizeSpeechInput {
   text: string
@@ -126,7 +135,27 @@ function encodeToDataUrl(buffer: ArrayBuffer, mimeType: string): string {
  * hook, so revoking object URLs would be a lifecycle bug waiting to happen,
  * and these clips are a few kilobytes.
  */
-export async function synthesizeSpeech({ text, sourceLanguage }: SynthesizeSpeechInput): Promise<string> {
+export async function synthesizeSpeech(input: SynthesizeSpeechInput): Promise<string> {
+  const { buffer, mimeType } = await fetchCachedAudio(input)
+  return encodeToDataUrl(buffer, mimeType)
+}
+
+/**
+ * Fetch pronunciation audio as raw bytes for a Web Audio caller.
+ *
+ * The selection toolbar asks for the bytes rather than a URL because it lives
+ * in a content script: any URL it loads in the page's document — `data:`,
+ * `blob:` or remote — is a subresource load the page's CSP can refuse, while
+ * an `ArrayBuffer` handed over extension messaging and decoded with
+ * `AudioContext.decodeAudioData` has no CSP directive to answer to. Structured
+ * clone copies the buffer, so the cache keeps its own.
+ */
+export async function synthesizeSpeechAudio(input: SynthesizeSpeechInput): Promise<ArrayBuffer> {
+  const { buffer } = await fetchCachedAudio(input)
+  return buffer
+}
+
+async function fetchCachedAudio({ text, sourceLanguage }: SynthesizeSpeechInput): Promise<CachedAudio> {
   const trimmed = text.trim()
   if (!trimmed) {
     throw new Error("Nothing to pronounce")
@@ -155,7 +184,7 @@ export async function synthesizeSpeech({ text, sourceLanguage }: SynthesizeSpeec
     throw new Error("Google TTS answered with a non-audio body")
   }
 
-  const audioUrl = encodeToDataUrl(await response.arrayBuffer(), mimeType)
+  const entry: CachedAudio = { buffer: await response.arrayBuffer(), mimeType }
 
   if (audioCache.size >= AUDIO_CACHE_LIMIT) {
     // Map iterates in insertion order, so the first key is the oldest entry.
@@ -164,10 +193,10 @@ export async function synthesizeSpeech({ text, sourceLanguage }: SynthesizeSpeec
       audioCache.delete(oldest)
     }
   }
-  audioCache.set(lang + trimmed, audioUrl)
+  audioCache.set(lang + trimmed, entry)
 
-  logger.info(`[TTS] Synthesised ${lang}, ${Math.round(audioUrl.length / 1024)}KB`)
-  return audioUrl
+  logger.info(`[TTS] Synthesised ${lang}, ${Math.round(entry.buffer.byteLength / 1024)}KB`)
+  return entry
 }
 
 /** Test seam: the cache is an implementation detail with no other consumer. */

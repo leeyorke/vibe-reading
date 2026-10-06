@@ -47,13 +47,14 @@
 - **`src/locales/`** — i18n 翻译文件 (YAML, 9 种语言: en/zh-CN/zh-TW/ja/ko/es/ru/vi/tr)
 - **`src/definitions/index.ts`** — 集中的常量/枚举定义 (语言代码、provider 定义等)
 - **`src/utils/db/`** — IndexedDB (Dexie) 缓存层: 翻译缓存、摘要缓存、生词本词汇表 (`vocabularyWords`)
-- **`src/entrypoints/host.content/selection-toolbar/`** — 划线翻译浮动工具栏: 选区监听 Hook、工具栏组件（翻译 + 收藏）、Shadow DOM 挂载
+- **`src/entrypoints/host.content/selection-toolbar/`** — 划线浮动工具栏: 选区监听 Hook (`use-text-selection.ts`)、工具栏组件（翻译 + 朗读 + 收藏）、朗读播放 hook (`use-speech-playback.ts`)、选中文字的语言猜测 (`guess-speech-lang.ts`)、Shadow DOM 挂载
 - **`src/entrypoints/background/selection-translate.ts`** — 选中文本翻译处理器（单条翻译，不走批处理队列）
 - **`src/entrypoints/background/vocabulary-handlers.ts`** — 生词本 CRUD + 闪卡会话消息处理器
 - **`src/entrypoints/background/review-scheduler.ts`** — 艾宾浩斯主动推送:自重排单次 `browser.alarms` (当 `periodInMinutes` 被浏览器强制 ≥1 分钟时,用 `when` 精确唤醒) → `runReviewTick()` → 系统通知;注册 `notifications.onClicked / onClosed`
 - **`src/entrypoints/review-card/`** — 独立复习卡片页 (`review-card.html`): 从通知点击打开，展示单词/音标/例句/中文/固定搭配 + 「记住了/没记住」
 - **`src/utils/review/`** — SRS 纯逻辑 (`schedule.ts`: 阶段推进/静默期/配额)、本地状态 (`store.ts`)、队列同步 (`queue-sync.ts`)、卡片组装 (`review-card.ts`)、例句生成 (`example-generator.ts`)、通知构造 (`notify.ts`)、朗读 (`speech.ts`)、词典文本解析 (`definition-lines.ts`)
 - **`src/entrypoints/background/review-handlers.ts`** — `/review` 选项页与复习卡片页的消息处理器 (状态/立即同步/清空队列/取卡片/评分)
+- **`src/entrypoints/background/speech-handlers.ts`** — 发音消息处理器：`synthesizeSpeech`（复习卡片页要的 `data:` URL）和 `synthesizeSpeechAudio`（悬浮工具栏要的原始字节）。两个出口是因为两种调用方活在不同的世界：扩展页可以直接 `new Audio(dataUrl)`，content script 不行，见下面 Notes 的说明
 - **`src/entrypoints/options/pages/vocabulary/`** — 生词本管理页: 搜索、排序、分页、星级修改、删除
 - **`src/entrypoints/options/pages/flashcards/`** — 闪卡复习页: 正面单词 → 翻转显示译文 → 1-5星评分 → 完成统计
 
@@ -85,3 +86,13 @@
 ## Notes
 
 <!-- 快速备注区: 在此追加临时发现或小贴士 -->
+
+- **悬浮工具栏的「朗读」按钮不能在 content script 里 `new Audio(dataUrl)`**: 媒体元素挂在页面的 document 上，即使创建它的是隔离世界里的 content script，`data:`/`blob:` 加载也会被页面 CSP 的 `media-src`（或最常见的 `default-src 'self'`）拒绝——`default-src 'self'` 的站点一片一片的，按钮会等于没点。正确姿势是 background 返回**原始音频字节**（`synthesizeSpeechAudio`，structured clone 走浏览器进程，页面 CSP 管不着），content script 里用 **Web Audio**（`AudioContext.decodeAudioData` + `AudioBufferSourceNode`）播放：没有任何 CSP 指令能拦 Web Audio，顺带隔离了页面 JS 对播放的干扰。`AudioContext` 必须在点击的同一个 task 里创建/`resume()`（在第一个 `await` 之前），否则 Chrome 的自动播放策略不给声音。请求进行中用户点了停止/换了选区/工具栏卸载时，用自增 token 让迟到的结果作废，别播放一段没人要的音频
+- **`AudioBufferSourceNode` 忘记 `connect(context.destination)` 是静默故障**: `start()` 照常成功、`onended` 照常触发、没有任何报错，但一个音符都听不到——表现就是「请求成功了、按钮状态也变了、就是没声音」。测试里务必断言 `source.connect` 被调用过，光断言 `start()` 拦不住这个 bug
+- **MV3 消息端口会在 handler 跑完之后才丢响应**: 用户看到的症状是「按钮显示翻译失败，但 HAR 里请求和响应全正常」——handler 完整执行了（fetch、解析、映射都成功），但 `sendMessage` 的 promise 以 "The message port closed before a response was received"/"No response" reject。这是 Chrome 给沉睡的 service worker 投递消息时的经典竞态，与本项目的业务代码无关。工具栏用 `withMessageRetry`（`message-retry.ts`）对这类传输层错误重试一次（worker 已热、且请求都是幂等 GET）；**真实错误不要重试**，直接抛。另外 UI 层 catch 务必带上 `error.message`（`翻译失败：${errorMessage(error)}`），否则端口竞态、handler 报错、provider 失败在界面上长得一模一样，只能靠用户截图猜
+- **重新加载扩展后必须刷新页面，否则 content script 是孤魂野鬼**: Chrome 不会给已打开的标签页重新注入 content script——旧脚本继续跑、工具栏继续响应点击，但它所有的 `chrome.*` binding 已被拆除，任何调用都以 "Extension context invalidated"（或参数 shim 读不到 `.length` 抛的 TypeError）失败，而 background 根本没被唤醒（HAR 里什么都看不到）。`chrome://extensions` 的错误页会把这些未捕获的 rejection 列在对应页面 URL 下，是诊断这个问题的第一现场。防线有三层：`message-retry.ts` 靠 `chrome.runtime.id` 探测并把错误换成「扩展已重新加载，请刷新页面后重试」；工具栏每秒轮询同一个探针，一旦中招就把三个按钮换成可点击的「刷新页面」片（`selection-toolbar.tsx`）；两个 content script 的 `main()` 都包了 try/catch，启动期遇失效只打日志、不留未捕获异常。**每次 reload 扩展后都要 F5 页面**；跑 `pnpm dev` 时每次源码改动触发扩展自 reload，更要记得刷新页面
+- **每次页面加载都会打一次 LLM 语言检测请求**（预存设计，不是划线翻译）: `host.content/runtime.ts` 结尾对 top frame 调 `detectAndReportPageLanguage` → `detectPageLanguageLightweight`（`utils/content/page-language.ts`）→ `detectLanguageWithSource` → `detectLanguageWithLLM`（`utils/content/language.ts`），页面正文 ≥80 字符就走 LLM。所以刷新任意网页都会看到一个 `/chat/completions` 请求——用户在排查工具栏问题时容易把它误当成「翻译按钮走了 LLM」。单次划词翻译的走向是：单词 → `translateSelectedTextStructured` → 本地词典 `{backendBaseUrl}/api/word/{word}`，返回 null 才回落到 LLM
+- **划线的发音语言只能按文字脚本猜** (`guess-speech-lang.ts`): 假名→ja（要先于汉字判断，否则日语被当中文）、谚文→ko、汉字→zh、西里尔→ru 等；拉丁文字一律 `en`。复习卡片那边词条自带 `sourceLanguage`，工具栏这边页面语言不可靠（法文页面上的英文引语），脚本是唯一诚实信号
+- **复习调度器的启动同步必须看 `review.enabled` 开关**（a176be5 的修复记录）: `setupReviewScheduler()` 原来在**每次 worker 唤醒**时都调 `syncReviewQueue()`，而 MV3 的 SW 会为每条 content script 消息唤醒一次——等于每次点「翻译」都要先打一遍 `/api/vocabulary`，即使功能从来是关闭的（默认关闭）。现在开关关着只清 alarm、不碰后端。另外一个隐蔽点：`syncReviewQueue` 的限流条件是 `state.lastSyncAt != null`，首次同步前（或后端挂导致同步失败、`lastSyncAt` 一直写不进去时）限流完全旁路，每次唤醒都会重试——后端长时间不可用时这就是个每消息一次的请求风暴，改限流时记得一起考虑失败退避
+- **诊断「按钮报错但 HAR 全正常」时先看 `chrome://extensions` 的错误页**: 那里的 "Uncaught (in promise): Error: Extension context invalidated" + 堆桩指向哪个 content script，直接说明页面里跑的是**已被失效的旧脚本**（扩展被 reload 过而页面没刷新）。堆桩落在 bundle 的模块求值处（如 `selection.js:5:1`）说明是**启动期**就带着失效上下文在跑；此时 background 根本没被唤醒，HAR 自然什么都没有。content script 的 `main()` 全量 try/catch 可以把这种噪声挡在日志里
+- **Edge 桌面应用（PWA 独立窗口）和其它标签页对 content script 一视同仁**: 从快捷方式启动的 PWA 窗口是全新页面加载，content script 注入时上下文健康，所以它"看起来正常"；而排查期间被反复 reload 扩展的老标签页脚本全部失效。别被"PWA 能用"误导——那通常只证明它是刚启动的。真正判断标准： reload 扩展后**每一个**开着的页面（含 PWA 窗口，Ctrl+R 或从快捷方式重启）都要刷新

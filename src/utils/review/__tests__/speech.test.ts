@@ -9,6 +9,7 @@ const {
   clearSpeechCache,
   resolveSpeechLang,
   synthesizeSpeech,
+  synthesizeSpeechAudio,
 } = await import("@/utils/review/speech")
 
 /** Build a Response whose body is a real (tiny) MP3-framed byte array. */
@@ -156,5 +157,45 @@ describe("synthesizeSpeech", () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network down")))
 
     await expect(synthesizeSpeech({ text: "ephemeral" })).rejects.toThrow(/network down/)
+  })
+})
+
+describe("synthesizeSpeechAudio", () => {
+  beforeEach(() => {
+    clearSpeechCache()
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it("hands over the fetched bytes for Web Audio playback", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => audioResponse()))
+
+    const bytes = await synthesizeSpeechAudio({ text: "ephemeral" })
+
+    expect(new Uint8Array(bytes)).toEqual(new Uint8Array([0xFF, 0xFB, 0x90, 0x00]))
+  })
+
+  it("shares the cache with the data URL path instead of asking twice", async () => {
+    const fetchMock = vi.fn().mockImplementation(async () => audioResponse())
+    vi.stubGlobal("fetch", fetchMock)
+
+    const bytes = await synthesizeSpeechAudio({ text: "ephemeral" })
+    const url = await synthesizeSpeech({ text: "ephemeral" })
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    // Both exits describe the same clip.
+    const [meta, base64] = url.split(",")
+    expect(meta).toBe("data:audio/mpeg;base64")
+    expect([...Uint8Array.from(atob(base64), c => c.charCodeAt(0))]).toEqual([...new Uint8Array(bytes)])
+  })
+
+  it("rejects an empty request without touching the network", async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(synthesizeSpeechAudio({ text: "   " })).rejects.toThrow(/Nothing to pronounce/)
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 })

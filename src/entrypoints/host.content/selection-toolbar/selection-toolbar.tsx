@@ -3,8 +3,11 @@ import type { WordDefinition } from "@/types/vocabulary"
 import { Icon } from "@iconify/react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
+import { logger } from "@/utils/logger"
 import { sendMessage } from "@/utils/message"
 import { MarkdownContent } from "./markdown-content"
+import { errorMessage, EXTENSION_STALE_MESSAGE, isExtensionContextInvalidated, withMessageRetry } from "./message-retry"
+import { useSpeechPlayback } from "./use-speech-playback"
 import { useTextSelection } from "./use-text-selection"
 
 interface ToolbarPosition {
@@ -36,6 +39,7 @@ function clampValue(value: number, min: number, max: number) {
 export function SelectionToolbar() {
   const toolbarRef = useRef<HTMLDivElement>(null)
   const selection = useTextSelection(toolbarRef)
+  const { state: speakState, speak, stop: stopSpeaking } = useSpeechPlayback()
   const [translating, setTranslating] = useState(false)
   const [translation, setTranslation] = useState<string | null>(null)
   const [wordDef, setWordDef] = useState<WordDefinition | null>(null)
@@ -50,6 +54,31 @@ export function SelectionToolbar() {
   // Animation state for collect button
   const [collectState, setCollectState] = useState<"idle" | "collecting" | "collected">("idle")
   const collectTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+
+  // Reloading the extension leaves this script's context invalidated while the
+  // page keeps running it — every button then fails with a message that names
+  // none of that. Watch the one tell that does, and offer the way out. Seeded
+  // eagerly so an already-dead script never renders live buttons at all.
+  const [staleContext, setStaleContext] = useState(isExtensionContextInvalidated)
+  const staleTimerRef = useRef<number | undefined>(undefined)
+  useEffect(() => {
+    if (staleContext)
+      return
+
+    staleTimerRef.current = window.setInterval(() => {
+      if (!isExtensionContextInvalidated())
+        return
+      window.clearInterval(staleTimerRef.current)
+      staleTimerRef.current = undefined
+      stopSpeaking()
+      setStaleContext(true)
+    }, 1000)
+
+    return () => {
+      window.clearInterval(staleTimerRef.current)
+      staleTimerRef.current = undefined
+    }
+  }, [staleContext, stopSpeaking])
 
   // Drag state for the result popover (positions are wrapper-relative pixels)
   const popoverRef = useRef<HTMLDivElement>(null)
@@ -66,6 +95,8 @@ export function SelectionToolbar() {
   // When a new selection appears, reset translation state
   useEffect(() => {
     if (selection.isVisible) {
+      // Pronunciation belongs to the old selection; drop it with the rest.
+      stopSpeaking()
       setShowTranslation(false)
       setTranslation(null)
       setWordDef(null)
@@ -78,16 +109,17 @@ export function SelectionToolbar() {
       setDragging(false)
       dragOriginRef.current = null
     }
-  }, [selection.isVisible])
+  }, [selection.isVisible, stopSpeaking])
 
   // Reset pinned state when user clicks outside (selection becomes invisible and not pinned)
   useEffect(() => {
     if (!selection.isVisible && !pinned) {
+      stopSpeaking()
       setShowTranslation(false)
       setTranslation(null)
       setWordDef(null)
     }
-  }, [selection.isVisible, pinned])
+  }, [selection.isVisible, pinned, stopSpeaking])
 
   // Cleanup timer on unmount
   useEffect(() => {
@@ -121,9 +153,9 @@ export function SelectionToolbar() {
     try {
       // Single word: try structured dictionary lookup first
       if (wordCount === 1) {
-        const def = await sendMessage("translateSelectedTextStructured", {
-          text: trimmed,
-        })
+        const def = await withMessageRetry(() =>
+          sendMessage("translateSelectedTextStructured", { text: trimmed }),
+        )
         if (def) {
           setWordDef(def)
           setTranslating(false)
@@ -132,13 +164,16 @@ export function SelectionToolbar() {
       }
 
       // Fallback to AI translation (multi-word or dictionary miss)
-      const result = await sendMessage("translateSelectedText", {
-        text: selection.text,
-      })
+      const result = await withMessageRetry(() =>
+        sendMessage("translateSelectedText", { text: selection.text }),
+      )
       setTranslation(result)
     }
-    catch {
-      setTranslation("翻译失败，请重试")
+    catch (error) {
+      // The real reason, not a shrug: a lost message port, a refused handler
+      // and a provider error all look identical from the outside otherwise.
+      logger.error("[SelectionToolbar] Translation failed:", error)
+      setTranslation(`翻译失败：${errorMessage(error)}`)
     }
     finally {
       setTranslating(false)
@@ -197,6 +232,7 @@ export function SelectionToolbar() {
 
   // Dismiss toolbar and popover when user clicks outside
   const handleDismiss = useCallback(() => {
+    stopSpeaking()
     setPinned(false)
     setShowTranslation(false)
     setTranslation(null)
@@ -206,7 +242,7 @@ export function SelectionToolbar() {
     setCollectState("idle")
     clearTimeout(collectTimerRef.current)
     setPopoverPos(null)
-  }, [])
+  }, [stopSpeaking])
 
   // Drag the result popover via its top handle. The popover stays absolutely
   // positioned inside the fixed wrapper, so we only move it in wrapper-relative
@@ -300,64 +336,129 @@ export function SelectionToolbar() {
         }}
         className="notranslate"
       >
-        <button
-          onClick={handleTranslate}
-          disabled={translating}
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "4px",
-            padding: "4px 10px",
-            border: "none",
-            borderRadius: "6px",
-            background: "var(--color-brand, #3b82f6)",
-            color: "#fff",
-            cursor: "pointer",
-            fontSize: "13px",
-            fontWeight: 500,
-            opacity: translating ? 0.6 : 1,
-            pointerEvents: "auto",
-          }}
-          title="翻译"
-        >
-          <Icon icon="tabler:language" width="16" height="16" />
-          {translating ? "翻译中..." : "翻译"}
-        </button>
+        {/* The extension was reloaded while this page stayed open: the script
+            behind this toolbar lost its API bindings, so every action button
+            would fail with a message that explains nothing. Offer the way out
+            instead. */}
+        {staleContext
+          ? (
+              <button
+                onClick={() => window.location.reload()}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "4px",
+                  padding: "4px 10px",
+                  border: "none",
+                  borderRadius: "6px",
+                  background: "var(--color-brand, #3b82f6)",
+                  color: "#fff",
+                  cursor: "pointer",
+                  fontSize: "13px",
+                  fontWeight: 500,
+                  pointerEvents: "auto",
+                }}
+                title={EXTENSION_STALE_MESSAGE}
+              >
+                <Icon icon="tabler:refresh" width="16" height="16" />
+                {EXTENSION_STALE_MESSAGE}
+              </button>
+            )
+          : (
+              <>
+                <button
+                  onClick={handleTranslate}
+                  disabled={translating}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "4px",
+                    padding: "4px 10px",
+                    border: "none",
+                    borderRadius: "6px",
+                    background: "var(--color-brand, #3b82f6)",
+                    color: "#fff",
+                    cursor: "pointer",
+                    fontSize: "13px",
+                    fontWeight: 500,
+                    opacity: translating ? 0.6 : 1,
+                    pointerEvents: "auto",
+                  }}
+                  title="翻译"
+                >
+                  <Icon icon="tabler:language" width="16" height="16" />
+                  {translating ? "翻译中..." : "翻译"}
+                </button>
 
-        <button
-          onClick={handleAddToVocab}
-          disabled={isCollectDisabled}
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "4px",
-            padding: "4px 10px",
-            border: "1px solid",
-            borderRadius: "6px",
-            background: isCollectActive ? "var(--color-green-100, #dcfce7)" : "transparent",
-            color: collectState === "collected" ? "var(--color-green-700, #15803d)" : "var(--color-text, #374151)",
-            borderColor: isCollectActive ? "var(--color-green-300, #86efac)" : "var(--color-border, #e5e7eb)",
-            cursor: "pointer",
-            fontSize: "13px",
-            fontWeight: 500,
-            opacity: hasResult ? 1 : 0.4,
-            transition: "all 0.2s ease",
-            animation: isCollectActive ? "vibe-reading-bounce 0.3s ease" : "none",
-            pointerEvents: "auto",
-          }}
-          title={collectState === "collected" ? "已加入生词本" : "加入生词本"}
-        >
-          <Icon
-            icon={collectState === "collected" ? "tabler:bookmark-filled" : "tabler:bookmark-plus"}
-            width="16"
-            height="16"
-            style={{
-              transition: "transform 0.2s ease",
-              transform: collectState === "collecting" ? "scale(1.2)" : "scale(1)",
-            }}
-          />
-          {collectState === "collected" ? "已收藏" : "收藏"}
-        </button>
+                <button
+                  onClick={() => void speak(selection.text)}
+                  disabled={!selection.text || speakState === "loading"}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "4px",
+                    padding: "4px 10px",
+                    border: "1px solid",
+                    borderRadius: "6px",
+                    background: speakState === "playing" ? "var(--color-brand-50, #eff6ff)" : "transparent",
+                    color: speakState === "playing" ? "var(--color-brand-700, #1d4ed8)" : "var(--color-text, #374151)",
+                    borderColor: speakState === "playing" ? "var(--color-brand-300, #93c5fd)" : "var(--color-border, #e5e7eb)",
+                    cursor: "pointer",
+                    fontSize: "13px",
+                    fontWeight: 500,
+                    opacity: selection.text ? 1 : 0.4,
+                    transition: "all 0.2s ease",
+                    pointerEvents: "auto",
+                  }}
+                  title={speakState === "playing" ? "停止朗读" : "朗读选中的句子或单词"}
+                >
+                  <Icon
+                    icon={speakState === "playing" ? "tabler:player-stop-filled" : "tabler:volume"}
+                    width="16"
+                    height="16"
+                    style={{
+                      animation: speakState === "loading" ? "vibe-reading-spin 0.6s linear infinite" : "none",
+                    }}
+                  />
+                  {speakState === "loading" ? "朗读中..." : speakState === "playing" ? "停止" : "朗读"}
+                </button>
+
+                <button
+                  onClick={handleAddToVocab}
+                  disabled={isCollectDisabled}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "4px",
+                    padding: "4px 10px",
+                    border: "1px solid",
+                    borderRadius: "6px",
+                    background: isCollectActive ? "var(--color-green-100, #dcfce7)" : "transparent",
+                    color: collectState === "collected" ? "var(--color-green-700, #15803d)" : "var(--color-text, #374151)",
+                    borderColor: isCollectActive ? "var(--color-green-300, #86efac)" : "var(--color-border, #e5e7eb)",
+                    cursor: "pointer",
+                    fontSize: "13px",
+                    fontWeight: 500,
+                    opacity: hasResult ? 1 : 0.4,
+                    transition: "all 0.2s ease",
+                    animation: isCollectActive ? "vibe-reading-bounce 0.3s ease" : "none",
+                    pointerEvents: "auto",
+                  }}
+                  title={collectState === "collected" ? "已加入生词本" : "加入生词本"}
+                >
+                  <Icon
+                    icon={collectState === "collected" ? "tabler:bookmark-filled" : "tabler:bookmark-plus"}
+                    width="16"
+                    height="16"
+                    style={{
+                      transition: "transform 0.2s ease",
+                      transform: collectState === "collecting" ? "scale(1.2)" : "scale(1)",
+                    }}
+                  />
+                  {collectState === "collected" ? "已收藏" : "收藏"}
+                </button>
+              </>
+            )}
 
         {/* Close button when pinned */}
         {pinned && (
