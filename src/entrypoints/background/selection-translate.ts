@@ -20,7 +20,7 @@ async function translateSelectedText(data: { text: string, sourceLanguageCode?: 
 
   // Single word: try dictionary REST API first, fall back to AI on failure
   if (wordCount === 1) {
-    const dictResult = await queryWordDefinitionStructured(data.text)
+    const dictResult = await translateSelectedTextStructured(data)
     if (dictResult !== null) {
       return formatDictAsText(dictResult)
     }
@@ -73,9 +73,21 @@ async function translateSelectedText(data: { text: string, sourceLanguageCode?: 
 /**
  * Looks up a single word via the dictionary REST API and returns structured data.
  * Does NOT fall back to AI translation.
+ *
+ * An entry the dictionary cannot answer with is a miss (`null`), which is what
+ * the toolbar interprets as "try the AI translation instead". That includes a
+ * lookup that fails outright: the payload comes from a separate local service
+ * with a shape that is not uniform, and a TypeError here would otherwise reach
+ * the toolbar as a raw crash.
  */
 async function translateSelectedTextStructured(data: { text: string }): Promise<WordDefinition | null> {
-  return await queryWordDefinitionStructured(data.text)
+  try {
+    return await queryWordDefinitionStructured(data.text)
+  }
+  catch (error) {
+    logger.error("[SelectionTranslate] Dictionary lookup failed:", error)
+    return null
+  }
 }
 
 /**

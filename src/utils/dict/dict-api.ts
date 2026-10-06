@@ -17,15 +17,24 @@ interface Sense {
   number: string
   definition: string
   chinese_definition: string
-  examples: Example[]
+  /**
+   * Optional: the backend is a separate local service whose entries vary, and a
+   * sense can legitimately arrive without an examples list.
+   */
+  examples?: Example[]
 }
 
 interface WordResponse {
   headword: string
   id: string
   pos: string
-  phonetics: Phonetics
-  senses: Sense[]
+  /** Optional for the same reason as {@link Sense.examples}. */
+  phonetics?: Phonetics
+  /**
+   * A payload without at least one sense says nothing the reader can use, so it
+   * counts as a miss rather than as a definition to render.
+   */
+  senses?: Sense[]
 }
 
 /**
@@ -46,8 +55,24 @@ function extractFirstWord(text: string): string | null {
 }
 
 /**
+ * Whether a parsed body is a word payload worth reading.
+ *
+ * The backend is a separate service that answers `{baseUrl}/api/word/{word}`
+ * with whatever it has for the entry: the shape is not uniform, and an error,
+ * an empty object or a plain-text body all come back with a 200 in some
+ * deployments. Anything without at least one sense is a miss.
+ */
+function isUsableWordPayload(data: unknown): data is WordResponse {
+  if (data == null || typeof data !== "object")
+    return false
+  const senses = (data as { senses?: unknown }).senses
+  return Array.isArray(senses) && senses.length > 0
+}
+
+/**
  * Fetches word definition from the dictionary API.
- * Returns the raw JSON response or null on failure.
+ * Returns the raw JSON response, or null when the entry is missing, the request
+ * failed or the body is not a usable word payload.
  */
 async function fetchWord(word: string): Promise<WordResponse | null> {
   const baseUrl = await getBackendBaseUrl()
@@ -61,7 +86,11 @@ async function fetchWord(word: string): Promise<WordResponse | null> {
       return null
     }
 
-    const data: WordResponse = await response.json()
+    const data = await response.json()
+    if (!isUsableWordPayload(data)) {
+      logger.warn(`[DictAPI] Response is not a word payload for word: ${word}`)
+      return null
+    }
     return data
   }
   catch (error) {
@@ -85,8 +114,8 @@ function formatWordResponse(data: WordResponse): string {
   lines.push(data.headword)
 
   // Phonetics line (only if at least one is available)
-  const ukPhonetic = data.phonetics.uk ?? ""
-  const usPhonetic = data.phonetics.us ?? ""
+  const ukPhonetic = data.phonetics?.uk ?? ""
+  const usPhonetic = data.phonetics?.us ?? ""
   if (ukPhonetic || usPhonetic) {
     const parts: string[] = []
     if (ukPhonetic) {
@@ -99,7 +128,7 @@ function formatWordResponse(data: WordResponse): string {
   }
 
   // Senses
-  for (const sense of data.senses) {
+  for (const sense of data.senses ?? []) {
     const posLabel = data.pos ? `${data.pos}. ` : ""
     lines.push(`${sense.number}. ${posLabel}${sense.chinese_definition}`)
   }
@@ -129,25 +158,31 @@ export async function queryWordDefinition(word: string): Promise<string | null> 
 /**
  * Maps the raw dictionary payload onto {@link WordDefinition}.
  *
- * A missing gloss or example list is dropped rather than defaulted to `""` so
- * that the review card can hide those rows instead of rendering blanks.
+ * A missing gloss, phonetic block or example list is dropped rather than
+ * defaulted to `""` so that the review card and the toolbar hide those rows
+ * instead of rendering blanks.
  */
 function toWordDefinition(data: WordResponse): WordDefinition {
   return {
     headword: data.headword,
-    phoneticUK: data.phonetics.uk,
-    phoneticUS: data.phonetics.us,
+    phoneticUK: data.phonetics?.uk,
+    phoneticUS: data.phonetics?.us,
     pos: data.pos,
-    senses: data.senses.map(s => ({
-      number: s.number,
-      ...(s.definition && { englishDefinition: s.definition }),
-      chineseDefinition: s.chinese_definition,
-      ...(s.examples.length > 0 && {
-        examples: s.examples
-          .filter(e => e.text?.trim())
-          .map(e => ({ text: e.text, chinese: e.chinese ?? "" })),
-      }),
-    })),
+    senses: (data.senses ?? []).map((s) => {
+      const examples = s.examples?.length
+        ? {
+            examples: s.examples
+              .filter(e => e.text?.trim())
+              .map(e => ({ text: e.text, chinese: e.chinese ?? "" })),
+          }
+        : {}
+      return {
+        number: s.number,
+        ...(s.definition && { englishDefinition: s.definition }),
+        chineseDefinition: s.chinese_definition,
+        ...examples,
+      }
+    }),
   }
 }
 
