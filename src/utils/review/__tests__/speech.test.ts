@@ -169,26 +169,41 @@ describe("synthesizeSpeechAudio", () => {
     vi.unstubAllGlobals()
   })
 
-  it("hands over the fetched bytes for Web Audio playback", async () => {
+  it("hands over bytes for Web Audio playback", async () => {
     vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => audioResponse()))
 
-    const bytes = await synthesizeSpeechAudio({ text: "ephemeral" })
+    const payload = await synthesizeSpeechAudio({ text: "ephemeral" })
 
-    expect(new Uint8Array(bytes)).toEqual(new Uint8Array([0xFF, 0xFB, 0x90, 0x00]))
+    expect([...Uint8Array.from(atob(payload), c => c.charCodeAt(0))]).toEqual([0xFF, 0xFB, 0x90, 0x00])
+  })
+
+  // The toolbar is a content script and gets its answer over
+  // `runtime.sendMessage`, which serialises messages as JSON. A raw ArrayBuffer
+  // crosses that channel as `{}`, so the button stayed silent while the HAR
+  // showed a 200 with real audio. What leaves here must still be audio after a
+  // JSON round trip — that is the contract, not an implementation detail.
+  it("returns a payload that survives the message channel", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => audioResponse()))
+
+    const payload = await synthesizeSpeechAudio({ text: "ephemeral" })
+
+    const survived = JSON.parse(JSON.stringify(payload))
+    expect(typeof survived).toBe("string")
+    expect([...Uint8Array.from(atob(survived), c => c.charCodeAt(0))]).toEqual([0xFF, 0xFB, 0x90, 0x00])
   })
 
   it("shares the cache with the data URL path instead of asking twice", async () => {
     const fetchMock = vi.fn().mockImplementation(async () => audioResponse())
     vi.stubGlobal("fetch", fetchMock)
 
-    const bytes = await synthesizeSpeechAudio({ text: "ephemeral" })
+    const payload = await synthesizeSpeechAudio({ text: "ephemeral" })
     const url = await synthesizeSpeech({ text: "ephemeral" })
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
     // Both exits describe the same clip.
     const [meta, base64] = url.split(",")
     expect(meta).toBe("data:audio/mpeg;base64")
-    expect([...Uint8Array.from(atob(base64), c => c.charCodeAt(0))]).toEqual([...new Uint8Array(bytes)])
+    expect(base64).toBe(payload)
   })
 
   it("rejects an empty request without touching the network", async () => {

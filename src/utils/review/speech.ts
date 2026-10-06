@@ -115,7 +115,11 @@ export function buildGoogleTtsUrl(text: string, lang: string): string {
   return `${GOOGLE_TTS_ENDPOINT}?${params.toString()}`
 }
 
-function encodeToDataUrl(buffer: ArrayBuffer, mimeType: string): string {
+/**
+ * Raw base64 of the audio bytes, in chunks because `btoa` chokes on a big
+ * string and `String.fromCharCode(...)` on a big spread.
+ */
+function encodeAudioBase64(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer)
   let binary = ""
   const chunkSize = 0x8000
@@ -124,7 +128,11 @@ function encodeToDataUrl(buffer: ArrayBuffer, mimeType: string): string {
     binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize))
   }
 
-  return `data:${mimeType};base64,${btoa(binary)}`
+  return btoa(binary)
+}
+
+function encodeToDataUrl(buffer: ArrayBuffer, mimeType: string): string {
+  return `data:${mimeType};base64,${encodeAudioBase64(buffer)}`
 }
 
 /**
@@ -141,18 +149,24 @@ export async function synthesizeSpeech(input: SynthesizeSpeechInput): Promise<st
 }
 
 /**
- * Fetch pronunciation audio as raw bytes for a Web Audio caller.
+ * Fetch pronunciation audio as base64 text for a Web Audio caller.
  *
- * The selection toolbar asks for the bytes rather than a URL because it lives
- * in a content script: any URL it loads in the page's document — `data:`,
- * `blob:` or remote — is a subresource load the page's CSP can refuse, while
- * an `ArrayBuffer` handed over extension messaging and decoded with
- * `AudioContext.decodeAudioData` has no CSP directive to answer to. Structured
- * clone copies the buffer, so the cache keeps its own.
+ * Not an ArrayBuffer, and that is not an oversight. The selection toolbar is a
+ * content script and gets its answer over `runtime.sendMessage`, which
+ * serialises messages as JSON: a buffer crosses that channel as `{}`, so the
+ * toolbar's `decodeAudioData` used to fail with "parameter 1 is not of type
+ * 'ArrayBuffer'" while the network log showed a perfectly healthy 200 — a
+ * silent button with a green request. Base64 is a string, so it survives, and
+ * the toolbar turns it back into bytes before decoding.
+ *
+ * (`runtime.connect` ports do carry a buffer, but a port is another lifecycle
+ * to manage for a few kilobytes.) The review card keeps its `data:` URL from
+ * {@link synthesizeSpeech} because it lives in an extension page and plays it
+ * through an `<audio>` element.
  */
-export async function synthesizeSpeechAudio(input: SynthesizeSpeechInput): Promise<ArrayBuffer> {
+export async function synthesizeSpeechAudio(input: SynthesizeSpeechInput): Promise<string> {
   const { buffer } = await fetchCachedAudio(input)
-  return buffer
+  return encodeAudioBase64(buffer)
 }
 
 async function fetchCachedAudio({ text, sourceLanguage }: SynthesizeSpeechInput): Promise<CachedAudio> {

@@ -45,13 +45,15 @@ describe("speech message handlers", () => {
     expect(synthesizeSpeechMock).toHaveBeenCalledWith({ text: "ephemeral" })
   })
 
-  it("hands the toolbar raw bytes it can decode", async () => {
-    const bytes = new Uint8Array([0xFF, 0xFB, 0x90, 0x00]).buffer
-    synthesizeSpeechAudioMock.mockResolvedValue(bytes)
+  it("hands the toolbar base64 text it can decode", async () => {
+    synthesizeSpeechAudioMock.mockResolvedValue(btoa("\u00FF\u00FB\u0090\u0000"))
     const handler = captureHandlers().get("synthesizeSpeechAudio")!
 
-    expect(await handler({ data: { text: "ephemeral", sourceLanguage: "en" } })).toBe(bytes)
+    // The channel serialises messages as JSON, so this must not be a buffer.
+    const payload = await handler({ data: { text: "ephemeral", sourceLanguage: "en" } })
+    expect(typeof payload).toBe("string")
     expect(synthesizeSpeechAudioMock).toHaveBeenCalledWith({ text: "ephemeral", sourceLanguage: "en" })
+    expect(JSON.parse(JSON.stringify(payload))).toBe(payload)
   })
 
   it("wraps a failure so the caller can show it", async () => {

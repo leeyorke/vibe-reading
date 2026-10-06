@@ -75,11 +75,13 @@ interface ProtocolMap {
   /** Fetch pronunciation audio for the card; resolves to a playable `data:` URL. */
   synthesizeSpeech: (data: { text: string, sourceLanguage?: string }) => Promise<string>
   /**
-   * Fetch pronunciation audio as raw bytes for Web Audio playback.
+   * Fetch pronunciation audio as base64 for Web Audio playback.
+   * `runtime.sendMessage` serialises messages as JSON, so this cannot be an
+   * ArrayBuffer — see `synthesizeSpeechAudio` in `utils/review/speech.ts`.
    * Used by the selection toolbar: a content script cannot play a `data:`/
    * `blob:` URL without the page's CSP getting a say in it.
    */
-  synthesizeSpeechAudio: (data: { text: string, sourceLanguage?: string }) => Promise<ArrayBuffer>
+  synthesizeSpeechAudio: (data: { text: string, sourceLanguage?: string }) => Promise<string>
   /** Run the scheduler pass immediately instead of waiting for its alarm. */
   runReviewNow: () => Promise<ReviewTickOutcome>
 }

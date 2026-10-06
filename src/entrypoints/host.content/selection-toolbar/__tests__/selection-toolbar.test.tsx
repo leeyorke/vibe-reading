@@ -84,7 +84,7 @@ describe("selection toolbar speak button", () => {
     vi.clearAllMocks()
     FakeAudioContext.last = null
     selectionMock.current = { text: "ephemeral", rect: new DOMRect(0, 100, 80, 20), isVisible: true }
-    sendMessageMock.mockResolvedValue(new Uint8Array([0xFF, 0xFB, 0x90, 0x00]).buffer)
+    sendMessageMock.mockResolvedValue(btoa(String.fromCharCode(0xFF, 0xFB, 0x90, 0x00)))
     vi.stubGlobal("AudioContext", FakeAudioContext)
   })
 

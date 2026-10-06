@@ -60,7 +60,7 @@ class FakeAudioContext {
 }
 
 function audioBytes(...bytes: number[]) {
-  return new Uint8Array(bytes).buffer
+  return btoa(String.fromCharCode(...bytes))
 }
 
 const { useSpeechPlayback } = await import("../use-speech-playback")
@@ -69,6 +69,7 @@ describe("useSpeechPlayback", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     FakeAudioContext.instances = []
+    // What the channel can actually carry: base64 text, never a buffer.
     sendMessageMock.mockResolvedValue(audioBytes(0xFF, 0xFB, 0x90, 0x00))
     vi.stubGlobal("AudioContext", FakeAudioContext)
   })
@@ -123,8 +124,8 @@ describe("useSpeechPlayback", () => {
   })
 
   it("ignores a second click while the audio is still on its way", async () => {
-    let resolveAudio: (value: ArrayBuffer) => void = () => {}
-    sendMessageMock.mockImplementation(() => new Promise<ArrayBuffer>((resolve) => {
+    let resolveAudio: (value: string) => void = () => {}
+    sendMessageMock.mockImplementation(() => new Promise<string>((resolve) => {
       resolveAudio = resolve
     }))
     const { result } = renderHook(() => useSpeechPlayback())
@@ -146,8 +147,8 @@ describe("useSpeechPlayback", () => {
   })
 
   it("drops the result of a request the user stopped mid-flight", async () => {
-    let resolveAudio: (value: ArrayBuffer) => void = () => {}
-    sendMessageMock.mockImplementation(() => new Promise<ArrayBuffer>((resolve) => {
+    let resolveAudio: (value: string) => void = () => {}
+    sendMessageMock.mockImplementation(() => new Promise<string>((resolve) => {
       resolveAudio = resolve
     }))
     const { result } = renderHook(() => useSpeechPlayback())
@@ -176,6 +177,21 @@ describe("useSpeechPlayback", () => {
 
     expect(result.current.state).toBe("idle")
     expect(toastErrorMock).toHaveBeenCalledWith("朗读失败：Google TTS responded 429")
+  })
+
+  // The shape that made this silent for so long: the channel JSON-serialised a
+  // buffer into `{}` and the button did nothing but look busy. Anything that is
+  // not decodable must be reported, never swallowed.
+  it("reports a payload that is not decodable audio instead of going quiet", async () => {
+    sendMessageMock.mockResolvedValue("{}")
+    const { result } = renderHook(() => useSpeechPlayback())
+
+    await act(async () => {
+      await result.current.speak("ephemeral")
+    })
+
+    expect(result.current.state).toBe("idle")
+    expect(toastErrorMock).toHaveBeenCalledWith(expect.stringContaining("朗读失败"))
   })
 
   it("does nothing for an empty selection", async () => {

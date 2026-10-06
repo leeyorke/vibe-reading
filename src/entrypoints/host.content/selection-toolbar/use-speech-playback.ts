@@ -92,7 +92,11 @@ export function useSpeechPlayback(): SpeechPlayback {
           sourceLanguage: guessSpeechLang(trimmed),
         }),
       )
-      const buffer = await context.decodeAudioData(audio)
+      // The message channel serialises as JSON, so what arrives is base64 text
+      // rather than a buffer — decode it here, into bytes `decodeAudioData`
+      // accepts.
+      const bytes = Uint8Array.from(atob(audio), c => c.charCodeAt(0))
+      const buffer = await context.decodeAudioData(bytes.buffer)
       if (requestRef.current !== request) {
         return
       }
