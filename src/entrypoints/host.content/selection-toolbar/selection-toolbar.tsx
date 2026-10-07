@@ -22,16 +22,16 @@ interface PopoverPosition {
 }
 
 interface PopoverDragOrigin {
-  // Popover offset relative to the toolbar wrapper while anchored
+  // Popover offset in viewport pixels, captured when the drag starts
   left: number
   top: number
   pointerX: number
   pointerY: number
-  wrapLeft: number
-  wrapTop: number
 }
 
 const POPOVER_VIEWPORT_MARGIN = 8
+/** Distance from the right edge for the popover's default, un-dragged spot. */
+const POPOVER_EDGE_MARGIN = 16
 
 function clampValue(value: number, min: number, max: number) {
   return Math.max(min, Math.min(value, max))
@@ -84,7 +84,7 @@ export function SelectionToolbar() {
     }
   }, [staleContext, stopSpeaking])
 
-  // Drag state for the result popover (positions are wrapper-relative pixels)
+  // Drag state for the result popover (positions are viewport pixels)
   const popoverRef = useRef<HTMLDivElement>(null)
   const [popoverPos, setPopoverPos] = useState<PopoverPosition | null>(null)
   const [dragging, setDragging] = useState(false)
@@ -287,25 +287,22 @@ export function SelectionToolbar() {
     setPopoverPos(null)
   }, [stopSpeaking])
 
-  // Drag the result popover via its top handle. The popover stays absolutely
-  // positioned inside the fixed wrapper, so we only move it in wrapper-relative
-  // coordinates — no position:fixed (the wrapper's transform would trap it).
+  // Drag the result popover via its top handle. The popover is `position: fixed`
+  // in viewport coordinates, so a drag is a plain delta on clientX/clientY —
+  // nothing to convert through the toolbar wrapper (which must stay free of any
+  // transform, or it would become the containing block and trap the popover).
   const handleDragStart = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     const popover = popoverRef.current
-    const wrapper = toolbarRef.current
-    if (!popover || !wrapper || event.button !== 0)
+    if (!popover || event.button !== 0)
       return
 
     event.preventDefault()
     const popRect = popover.getBoundingClientRect()
-    const wrapRect = wrapper.getBoundingClientRect()
     dragOriginRef.current = {
-      left: popRect.left - wrapRect.left,
-      top: popRect.top - wrapRect.top,
+      left: popRect.left,
+      top: popRect.top,
       pointerX: event.clientX,
       pointerY: event.clientY,
-      wrapLeft: wrapRect.left,
-      wrapTop: wrapRect.top,
     }
     event.currentTarget.setPointerCapture(event.pointerId)
     setDragging(true)
@@ -320,13 +317,13 @@ export function SelectionToolbar() {
     const height = popoverRef.current?.offsetHeight ?? 0
     const left = clampValue(
       origin.left + event.clientX - origin.pointerX,
-      -origin.wrapLeft + POPOVER_VIEWPORT_MARGIN,
-      window.innerWidth - origin.wrapLeft - width - POPOVER_VIEWPORT_MARGIN,
+      POPOVER_VIEWPORT_MARGIN,
+      Math.max(POPOVER_VIEWPORT_MARGIN, window.innerWidth - width - POPOVER_VIEWPORT_MARGIN),
     )
     const top = clampValue(
       origin.top + event.clientY - origin.pointerY,
-      -origin.wrapTop + POPOVER_VIEWPORT_MARGIN,
-      window.innerHeight - origin.wrapTop - height - POPOVER_VIEWPORT_MARGIN,
+      POPOVER_VIEWPORT_MARGIN,
+      Math.max(POPOVER_VIEWPORT_MARGIN, window.innerHeight - height - POPOVER_VIEWPORT_MARGIN),
     )
     setPopoverPos({ left, top })
   }, [])
@@ -361,12 +358,13 @@ export function SelectionToolbar() {
         position: "fixed",
         left: `${position.left}px`,
         top: `${position.top}px`,
-        transform: "translateX(-50%) translateY(-100%)",
         zIndex: 2147483646,
         pointerEvents: "none",
       }}
     >
-      {/* Floating toolbar buttons */}
+      {/* Floating capsule. Its own transform does the centring — the wrapper
+          above must stay transform-free, or it would become the containing
+          block for the fixed result popover below and pin it to the selection. */}
       <div
         style={{
           display: "flex",
@@ -378,6 +376,8 @@ export function SelectionToolbar() {
           borderRadius: "8px",
           boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
           fontSize: "13px",
+          transform: "translateX(-50%) translateY(-100%)",
+          pointerEvents: "auto",
         }}
         className="notranslate"
       >
@@ -534,10 +534,13 @@ export function SelectionToolbar() {
         <div
           ref={popoverRef}
           style={{
-            position: "absolute",
+            // Detached from the capsule and bolted to the viewport: the answer
+            // gets a stable reading column instead of a box that keeps growing
+            // downward from wherever the text happened to be selected.
+            position: "fixed",
             ...(popoverPos
               ? { left: `${popoverPos.left}px`, top: `${popoverPos.top}px` }
-              : { top: "calc(100% + 4px)", left: "50%", transform: "translateX(-50%)" }),
+              : { right: `${POPOVER_EDGE_MARGIN}px`, top: "50%", transform: "translateY(-50%)" }),
             minWidth: "240px",
             maxWidth: "380px",
             maxHeight: "65vh",

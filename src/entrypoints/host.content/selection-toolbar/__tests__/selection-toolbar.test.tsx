@@ -337,3 +337,147 @@ describe("selection toolbar translate button", () => {
     })
   })
 })
+
+describe("selection toolbar result popover placement", () => {
+  const originalSetCapture = Element.prototype.setPointerCapture
+  const originalReleaseCapture = Element.prototype.releasePointerCapture
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    FakeAudioContext.last = null
+    selectionMock.current = { text: "ephemeral", rect: new DOMRect(0, 100, 80, 20), isVisible: true }
+    sendMessageMock.mockResolvedValue(null)
+    streamMock.mockResolvedValue("答案")
+    vi.stubGlobal("AudioContext", FakeAudioContext)
+    // jsdom ships neither of these, and the drag handle calls both.
+    Element.prototype.setPointerCapture = vi.fn()
+    Element.prototype.releasePointerCapture = vi.fn()
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    Element.prototype.setPointerCapture = originalSetCapture
+    Element.prototype.releasePointerCapture = originalReleaseCapture
+  })
+
+  function popover() {
+    return document.querySelector(".vibe-selection-popover") as HTMLElement
+  }
+
+  it("bolts the answer to the right-centre of the viewport instead of under the capsule", async () => {
+    render(<SelectionToolbar />)
+    fireEvent.click(translateButton())
+
+    await waitFor(() => {
+      expect(popover()).toBeInTheDocument()
+    })
+
+    const style = popover().style
+    expect(style.position).toBe("fixed")
+    expect(style.right).toBe("16px")
+    expect(style.top).toBe("50%")
+    // Vertically centred against the viewport, not anchored to the selection.
+    expect(style.transform).toBe("translateY(-50%)")
+  })
+
+  it("keeps the popover inside the toolbar root, so clicks in it are not clicks outside", async () => {
+    render(<SelectionToolbar />)
+    fireEvent.click(translateButton())
+
+    await waitFor(() => {
+      expect(popover()).toBeInTheDocument()
+    })
+
+    // The wrapper is what the selection hook treats as "inside". If the popover
+    // ever moves out of it, scrolling the result would count as a click outside
+    // and strand the capsule.
+    const capsule = screen.getByTitle("翻译").closest(".notranslate") as HTMLElement
+    expect(popover().parentElement).toBe(capsule.parentElement)
+  })
+
+  it("leaves the wrapper transform-free so the fixed popover is really fixed", async () => {
+    render(<SelectionToolbar />)
+    fireEvent.click(translateButton())
+
+    await waitFor(() => {
+      expect(popover()).toBeInTheDocument()
+    })
+
+    const capsule = screen.getByTitle("翻译").closest(".notranslate") as HTMLElement
+    // The centring transform belongs on the capsule. On the wrapper it would
+    // become the containing block for the fixed popover and drag it back down
+    // to the selection.
+    expect(capsule.style.transform).toBe("translateX(-50%) translateY(-100%)")
+    expect((capsule.parentElement as HTMLElement).style.transform).toBe("")
+    expect((capsule.parentElement as HTMLElement).style.position).toBe("fixed")
+  })
+
+  it("drags in viewport pixels and clamps to the viewport", async () => {
+    render(<SelectionToolbar />)
+    fireEvent.click(translateButton())
+
+    await waitFor(() => {
+      expect(popover()).toBeInTheDocument()
+    })
+
+    // jsdom has no layout, so feed the drag handle the box the popover occupies.
+    vi.spyOn(popover(), "getBoundingClientRect").mockReturnValue(new DOMRect(600, 100, 380, 500))
+
+    const handle = popover().querySelector("[title='按住拖动']") as HTMLElement
+    fireEvent.pointerDown(handle, { button: 0, clientX: 500, clientY: 400, pointerId: 1 })
+    fireEvent.pointerMove(handle, { clientX: 460, clientY: 380 })
+    fireEvent.pointerUp(handle, { clientX: 460, clientY: 380, pointerId: 1 })
+
+    const style = popover().style
+    // Plain viewport delta: 600 + (460 - 500), 100 + (380 - 400).
+    expect(style.left).toBe("560px")
+    expect(style.top).toBe("80px")
+    // Once dragged it no longer claims the default right-centre spot.
+    expect(style.right).toBe("")
+    expect(style.transform).toBe("")
+  })
+
+  it("clamps a drag to the viewport instead of letting the popover escape", async () => {
+    render(<SelectionToolbar />)
+    fireEvent.click(translateButton())
+    await waitFor(() => {
+      expect(popover()).toBeInTheDocument()
+    })
+
+    vi.spyOn(popover(), "getBoundingClientRect").mockReturnValue(new DOMRect(600, 100, 380, 500))
+
+    const handle = popover().querySelector("[title='按住拖动']") as HTMLElement
+    // Far off the top-left corner: the popover stops at the viewport margin.
+    fireEvent.pointerDown(handle, { button: 0, clientX: 500, clientY: 400, pointerId: 1 })
+    fireEvent.pointerMove(handle, { clientX: -200, clientY: -200 })
+    fireEvent.pointerUp(handle, { clientX: -200, clientY: -200, pointerId: 1 })
+
+    expect(popover().style.left).toBe("8px")
+    expect(popover().style.top).toBe("8px")
+  })
+
+  it("hands the next translation the default right-centre spot again", async () => {
+    render(<SelectionToolbar />)
+    fireEvent.click(translateButton())
+    await waitFor(() => {
+      expect(popover()).toBeInTheDocument()
+    })
+
+    vi.spyOn(popover(), "getBoundingClientRect").mockReturnValue(new DOMRect(600, 100, 380, 500))
+
+    const handle = popover().querySelector("[title='按住拖动']") as HTMLElement
+    fireEvent.pointerDown(handle, { button: 0, clientX: 500, clientY: 400, pointerId: 1 })
+    fireEvent.pointerMove(handle, { clientX: 460, clientY: 380 })
+    fireEvent.pointerUp(handle, { clientX: 460, clientY: 380, pointerId: 1 })
+
+    expect(popover().style.left).toBe("560px")
+
+    // A fresh translation resets it.
+    fireEvent.click(translateButton())
+
+    await waitFor(() => {
+      expect(popover().style.right).toBe("16px")
+    })
+    expect(popover().style.left).toBe("")
+  })
+})
