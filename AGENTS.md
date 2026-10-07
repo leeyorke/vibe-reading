@@ -70,7 +70,8 @@
 - **格式化**: ESLint (antfu config) + Prettier (markdown), 双引号, 无分号, `unused-imports/no-unused-imports: error`
 - **Git**: commitlint (conventional commits) + husky + lint-staged
 - **日志**: `src/utils/logger.ts` — 仅 dev 环境下输出, 生产环境 noop; 使用 `logger.info/warn/error`
-- **划线翻译**: 选区监听 (`useTextSelection` Hook) + `sendMessage("translateSelectedText")` → background 直接调用 `aiTranslate()`（不走批处理队列）
+- **划线翻译（流式）**: 选区监听 (`useTextSelection` Hook) → 单词先 `sendMessage("translateSelectedTextStructured")` 查本地词典，miss 或多词才走 LLM：`requestSelectionTranslateStream()`（`selection-toolbar/selection-translate-stream.ts`）开一个 `runtime.connect` 端口 → background `setupSelectionTranslateStreamHandler()` 用 `streamText` 边生成边 `port.postMessage({type:"delta"})`，收尾发 `{type:"done", text}` 并 `disconnect()`（端口不关会一直吊着 service worker）。**不走 `sendMessage`**：一请求一响应的通道逼着整段生成完才能显示，而那正是用户抱怨的转圈等待；端口还顺便在流式期间保持 SW 不睡。`done` 里的 text 才是权威全文（已 trim，也就是进生词本的那份），delta 只负责让用户先看着。思维链内联在正文里的模型由 `createThinkTagFilter`（`utils/host/translate/api/think-tag.ts`）按开头几个字符判定、拦在闭合的 think 标签之前，语义跟非流式那条 `THINK_TAG_RE` 保持一致
+- **划线翻译（已删掉的缓冲通道）**: 曾经还有一条 `sendMessage("translateSelectedText")` → `aiTranslate()` 的一次性通道，流式上线后它没有任何调用方，连消息协议条目一起删了。别再加回来——同一个功能留两条看得见的路，下一个人只会猜哪条是活的
 - **生词本收藏**: `sendMessage("addVocabularyWord")` → background 写入 Dexie `vocabularyWords` 表（同词+同URL去重），默认 `star=3`
 - **闪卡复习**: `sendMessage("getFlashcardSession")` → weighted random 抽取 10 个单词（低星高权重），`markWordReviewed` 更新星级和复习次数
 - **主动推送复习 (Ebbinghaus)**: SRS 状态**只存本地** `chrome.storage.local` (`local:review:*`)，因为后端 `/api/vocabulary` 没有「上次推送时间」字段；推送走词条快照，不依赖后端在线。间隔阶梯 `SRS_INTERVALS_MINUTES` = 5m/30m/12h/1d/2d/4d/7d/15d，到点自动推进 (`advanceStage`)，在卡片页点「记住了/没记住」只做 ±2/−1 修正。例句复用 `config.translate.providerId`（**不新增 `FEATURE_KEY`**，否则 `configSchema.superRefine` 会让老配置解析失败、`initializeConfig` 直接重置整个配置）；新配置块用 `.prefault({})` 而非 `.default({})`，同样是为了老配置兼容

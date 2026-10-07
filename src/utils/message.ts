@@ -45,11 +45,6 @@ interface ProtocolMap {
   clearAllTranslationRelatedCache: () => Promise<void>
 
   // --- selection translation ---
-  translateSelectedText: (data: {
-    text: string
-    sourceLanguageCode?: string
-    targetLanguageCode?: string
-  }) => Promise<string | null>
   translateSelectedTextStructured: (data: {
     text: string
   }) => Promise<WordDefinition | null>

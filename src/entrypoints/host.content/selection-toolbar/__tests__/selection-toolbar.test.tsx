@@ -2,7 +2,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-const { selectionMock, sendMessageMock } = vi.hoisted(() => ({
+const { selectionMock, sendMessageMock, streamMock } = vi.hoisted(() => ({
   selectionMock: {
     current: {
       text: "ephemeral",
@@ -11,6 +11,7 @@ const { selectionMock, sendMessageMock } = vi.hoisted(() => ({
     } as { text: string, rect: DOMRect | null, isVisible: boolean },
   },
   sendMessageMock: vi.fn(),
+  streamMock: vi.fn(),
 }))
 
 vi.mock("../use-text-selection", () => ({
@@ -19,6 +20,12 @@ vi.mock("../use-text-selection", () => ({
 
 vi.mock("@/utils/message", () => ({
   sendMessage: (...args: unknown[]) => sendMessageMock(...args),
+}))
+
+// The streamed AI path. Every argument the toolbar passes is asserted by name
+// in the tests below, so a stub is enough here.
+vi.mock("../selection-translate-stream", () => ({
+  requestSelectionTranslateStream: (...args: unknown[]) => streamMock(...args),
 }))
 
 vi.mock("sonner", () => ({
@@ -79,12 +86,19 @@ function speakButton() {
   return screen.getByTitle("朗读选中的句子或单词")
 }
 
+function translateButton() {
+  return screen.getByTitle("翻译")
+}
+
+const AUDIO_BASE64 = btoa(String.fromCharCode(0xFF, 0xFB, 0x90, 0x00))
+
 describe("selection toolbar speak button", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     FakeAudioContext.last = null
     selectionMock.current = { text: "ephemeral", rect: new DOMRect(0, 100, 80, 20), isVisible: true }
-    sendMessageMock.mockResolvedValue(btoa(String.fromCharCode(0xFF, 0xFB, 0x90, 0x00)))
+    sendMessageMock.mockImplementation((type: string) =>
+      type === "synthesizeSpeechAudio" ? Promise.resolve(AUDIO_BASE64) : Promise.resolve(null))
     vi.stubGlobal("AudioContext", FakeAudioContext)
   })
 
@@ -166,5 +180,160 @@ describe("selection toolbar speak button", () => {
     expect(screen.getByTitle(EXTENSION_STALE_MESSAGE)).toBeInTheDocument()
     expect(screen.queryByTitle("翻译")).not.toBeInTheDocument()
     expect(screen.queryByTitle("加入生词本")).not.toBeInTheDocument()
+  })
+})
+
+describe("selection toolbar translate button", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    FakeAudioContext.last = null
+    selectionMock.current = { text: "ephemeral", rect: new DOMRect(0, 100, 80, 20), isVisible: true }
+    // A dictionary miss (null) is what routes a single word to the AI path.
+    sendMessageMock.mockResolvedValue(null)
+    vi.stubGlobal("AudioContext", FakeAudioContext)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it("renders each slice of the answer as it arrives", async () => {
+    streamMock.mockImplementation(async (_data: unknown, handlers: { onDelta: (delta: string) => void }) => {
+      handlers.onDelta("## declare\n")
+      handlers.onDelta("verb， 动词")
+      return "## declare\nverb， 动词"
+    })
+
+    render(<SelectionToolbar />)
+    fireEvent.click(translateButton())
+
+    // The answer is on screen before the request has finished, which is the
+    // whole point of the stream.
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "declare" })).toBeInTheDocument()
+    })
+    expect(screen.getByText("verb， 动词")).toBeInTheDocument()
+  })
+
+  it("keeps the spinner until the first slice arrives, not until the end", async () => {
+    let emitDelta: (delta: string) => void = () => {}
+    streamMock.mockImplementation((_data: unknown, handlers: { onDelta: (delta: string) => void }) =>
+      new Promise<string>((resolve) => {
+        emitDelta = handlers.onDelta
+        // Deliberately never resolved: the point is what happens *before* that.
+        void resolve
+      }))
+
+    render(<SelectionToolbar />)
+    fireEvent.click(translateButton())
+
+    // The toolbar button also says 翻译中..., so scope to the popover's div.
+    expect(await screen.findByText("翻译中...", { selector: "div" })).toBeInTheDocument()
+
+    emitDelta("答案")
+
+    await waitFor(() => {
+      expect(screen.queryByText("翻译中...", { selector: "div" })).not.toBeInTheDocument()
+    })
+    expect(screen.getByText("答案")).toBeInTheDocument()
+  })
+
+  it("hands the selected text to the stream, untrimmed like before", async () => {
+    streamMock.mockResolvedValue("答案")
+    selectionMock.current = { text: "  a fleeting moment  ", rect: new DOMRect(0, 100, 80, 20), isVisible: true }
+
+    render(<SelectionToolbar />)
+    fireEvent.click(translateButton())
+
+    await waitFor(() => {
+      expect(streamMock).toHaveBeenCalledTimes(1)
+    })
+    expect(streamMock.mock.calls[0][0]).toEqual({ text: "  a fleeting moment  " })
+  })
+
+  it("asks the stream for the multi-word selection, skipping the dictionary", async () => {
+    streamMock.mockResolvedValue("答案")
+    selectionMock.current = { text: "a fleeting moment", rect: new DOMRect(0, 100, 80, 20), isVisible: true }
+
+    render(<SelectionToolbar />)
+    fireEvent.click(translateButton())
+
+    await waitFor(() => {
+      expect(streamMock).toHaveBeenCalledTimes(1)
+    })
+    expect(sendMessageMock).not.toHaveBeenCalledWith("translateSelectedTextStructured", expect.anything())
+  })
+
+  it("shows the provider's reason when the stream fails", async () => {
+    streamMock.mockRejectedValue(new Error("401 Unauthorized"))
+
+    render(<SelectionToolbar />)
+    fireEvent.click(translateButton())
+
+    expect(await screen.findByText("翻译失败：401 Unauthorized")).toBeInTheDocument()
+  })
+
+  it("keeps whatever streamed in and appends the failure when the stream dies halfway", async () => {
+    streamMock.mockImplementation(async (_data: unknown, handlers: { onDelta: (delta: string) => void }) => {
+      handlers.onDelta("半句翻译")
+      throw new Error("翻译连接中断，请重试")
+    })
+
+    render(<SelectionToolbar />)
+    fireEvent.click(translateButton())
+
+    expect(await screen.findByText(/翻译连接中断，请重试/)).toBeInTheDocument()
+    // The partial answer is not wiped out by the failure beneath it.
+    expect(screen.getByText("半句翻译")).toBeInTheDocument()
+  })
+
+  it("does not offer to collect before anything has streamed in", async () => {
+    let emitDelta: (delta: string) => void = () => {}
+    streamMock.mockImplementation((_data: unknown, handlers: { onDelta: (delta: string) => void }) =>
+      new Promise<string>((resolve) => {
+        emitDelta = handlers.onDelta
+        void resolve
+      }))
+
+    render(<SelectionToolbar />)
+    fireEvent.click(translateButton())
+
+    await screen.findByText("翻译中...", { selector: "div" })
+    expect(screen.getByTitle("加入生词本")).toBeDisabled()
+
+    emitDelta("答案")
+
+    await waitFor(() => {
+      expect(screen.getByTitle("加入生词本")).toBeEnabled()
+    })
+  })
+
+  it("saves the streamed answer to the vocabulary book", async () => {
+    streamMock.mockImplementation(async (_data: unknown, handlers: { onDelta: (delta: string) => void }) => {
+      handlers.onDelta("答案 ")
+      return "答案"
+    })
+    sendMessageMock.mockImplementation((type: string) => {
+      if (type === "addVocabularyWord") {
+        return Promise.resolve("word-id")
+      }
+      return Promise.resolve(null)
+    })
+
+    render(<SelectionToolbar />)
+    fireEvent.click(translateButton())
+
+    await waitFor(() => {
+      expect(screen.getByTitle("加入生词本")).toBeEnabled()
+    })
+
+    fireEvent.click(screen.getByTitle("加入生词本"))
+
+    await waitFor(() => {
+      expect(sendMessageMock).toHaveBeenCalledWith("addVocabularyWord", expect.objectContaining({
+        word: "ephemeral",
+        translation: "答案",
+      }))
+    })
   })
 })

@@ -10,7 +10,7 @@ import { setupLLMGenerateTextMessageHandlers } from "./llm-generate-text"
 import { proxyFetch } from "./proxy-fetch"
 import { setupReviewMessageHandlers } from "./review-handlers"
 import { setupReviewScheduler } from "./review-scheduler"
-import { setupSelectionTranslateHandler } from "./selection-translate"
+import { setupSelectionTranslateHandler, setupSelectionTranslateStreamHandler } from "./selection-translate"
 import { setupSpeechMessageHandlers } from "./speech-handlers"
 import { setUpWebPageTranslationQueue } from "./translation-queues"
 import { translationMessage } from "./translation-signal"
@@ -52,6 +52,10 @@ export default defineBackground({
 
     // Handle selection translation requests from content script
     setupSelectionTranslateHandler()
+
+    // Streamed selection translation: same route, delivered over a port so the
+    // toolbar can render the answer while the provider is still writing it.
+    setupSelectionTranslateStreamHandler()
 
     // Handle vocabulary and flashcard message requests
     setupVocabularyMessageHandlers()

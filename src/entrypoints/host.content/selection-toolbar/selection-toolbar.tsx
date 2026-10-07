@@ -7,6 +7,7 @@ import { logger } from "@/utils/logger"
 import { sendMessage } from "@/utils/message"
 import { MarkdownContent } from "./markdown-content"
 import { errorMessage, EXTENSION_STALE_MESSAGE, isExtensionContextInvalidated, withMessageRetry } from "./message-retry"
+import { requestSelectionTranslateStream } from "./selection-translate-stream"
 import { useSpeechPlayback } from "./use-speech-playback"
 import { useTextSelection } from "./use-text-selection"
 
@@ -41,6 +42,9 @@ export function SelectionToolbar() {
   const selection = useTextSelection(toolbarRef)
   const { state: speakState, speak, stop: stopSpeaking } = useSpeechPlayback()
   const [translating, setTranslating] = useState(false)
+  // True while deltas are still arriving. Distinct from `translating`: once the
+  // first delta lands the popover should show the answer, not a spinner.
+  const [streaming, setStreaming] = useState(false)
   const [translation, setTranslation] = useState<string | null>(null)
   const [wordDef, setWordDef] = useState<WordDefinition | null>(null)
   const [showTranslation, setShowTranslation] = useState(false)
@@ -101,6 +105,7 @@ export function SelectionToolbar() {
       setTranslation(null)
       setWordDef(null)
       setTranslating(false)
+      setStreaming(false)
       setPinned(false)
       pinnedRectRef.current = null
       setCollectState("idle")
@@ -118,6 +123,7 @@ export function SelectionToolbar() {
       setShowTranslation(false)
       setTranslation(null)
       setWordDef(null)
+      setStreaming(false)
     }
   }, [selection.isVisible, pinned, stopSpeaking])
 
@@ -133,6 +139,20 @@ export function SelectionToolbar() {
       }
     : null
 
+  // Stick to the bottom of the popover while the answer streams in, unless the
+  // reader scrolled up to re-read something. Without this a long analysis keeps
+  // growing below the fold and the newest sentence is never visible.
+  useEffect(() => {
+    const popover = popoverRef.current
+    if (!popover || !streaming) {
+      return
+    }
+    const distanceFromBottom = popover.scrollHeight - popover.scrollTop - popover.clientHeight
+    if (distanceFromBottom < 120) {
+      popover.scrollTop = popover.scrollHeight
+    }
+  }, [streaming, translation])
+
   const handleTranslate = useCallback(async () => {
     if (!selection.text || translating)
       return
@@ -141,6 +161,7 @@ export function SelectionToolbar() {
     pinnedRectRef.current = selection.rect
     setPinned(true)
     setTranslating(true)
+    setStreaming(false)
     setShowTranslation(true)
     setTranslation(null)
     setWordDef(null)
@@ -163,19 +184,40 @@ export function SelectionToolbar() {
         }
       }
 
-      // Fallback to AI translation (multi-word or dictionary miss)
-      const result = await withMessageRetry(() =>
-        sendMessage("translateSelectedText", { text: selection.text }),
+      // Fallback to AI translation (multi-word or dictionary miss), streamed:
+      // the popover renders every delta as it arrives, and the `done` message
+      // hands back the authoritative whole text.
+      //
+      // Deliberately not wrapped in `withMessageRetry`: that helper retries
+      // one-shot `sendMessage` calls whose only failure mode is a port that
+      // closed before the response was read. A stream that dies halfway cannot
+      // be retried without paying for the whole generation twice and stacking a
+      // second answer on top of the first, so it fails once, loudly.
+      setTranslation("")
+      setStreaming(true)
+      const streamedText = await requestSelectionTranslateStream(
+        { text: selection.text },
+        {
+          onDelta: (delta) => {
+            setTranslation(prev => (prev ?? "") + delta)
+          },
+        },
       )
-      setTranslation(result)
+      setTranslation(streamedText)
     }
     catch (error) {
       // The real reason, not a shrug: a lost message port, a refused handler
       // and a provider error all look identical from the outside otherwise.
       logger.error("[SelectionToolbar] Translation failed:", error)
-      setTranslation(`翻译失败：${errorMessage(error)}`)
+      // Whatever already streamed in stays visible; the failure is appended so
+      // the user can tell a cut-off answer from a refused request.
+      setTranslation((prev) => {
+        const failure = `翻译失败：${errorMessage(error)}`
+        return prev && prev.trim() !== "" ? `${prev}\n\n${failure}` : failure
+      })
     }
     finally {
+      setStreaming(false)
       setTranslating(false)
     }
   }, [selection.text, selection.rect, translating])
@@ -238,6 +280,7 @@ export function SelectionToolbar() {
     setTranslation(null)
     setWordDef(null)
     setTranslating(false)
+    setStreaming(false)
     pinnedRectRef.current = null
     setCollectState("idle")
     clearTimeout(collectTimerRef.current)
@@ -302,7 +345,9 @@ export function SelectionToolbar() {
   }, [])
 
   const isCollectActive = collectState !== "idle"
-  const hasResult = translation !== null || wordDef !== null
+  // A stream that has produced nothing yet is not a result: the collect button
+  // must not offer to save an empty translation while the answer streams in.
+  const hasResult = (translation?.trim() ?? "") !== "" || wordDef !== null
   const isCollectDisabled = !hasResult || isCollectActive
 
   if (!position) {
@@ -531,8 +576,11 @@ export function SelectionToolbar() {
           >
             <span style={{ width: "36px", height: "4px", borderRadius: "999px", background: "#d1d5db" }} />
           </div>
-          {translating
+          {translating && (translation == null || translation.trim() === "")
             ? (
+                // Nothing visible yet. A reasoning model can spend a long time
+                // before the first user-facing token, so the spinner has to
+                // outlive the wait for the first delta.
                 <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "14px 18px", fontSize: "14px" }}>
                   <span style={{
                     width: "14px",
@@ -640,7 +688,7 @@ export function SelectionToolbar() {
                     </div>
                   </>
                 )
-              : translation
+              : translation != null && translation.trim() !== ""
                 ? <MarkdownContent content={translation} />
                 : null}
         </div>

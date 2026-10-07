@@ -1,74 +1,20 @@
+import type { Browser } from "#imports"
 import type { Config } from "@/types/config/config"
+import type {
+  SelectionTranslateStreamMessage,
+  SelectionTranslateStreamRequest,
+} from "@/types/selection-translate-stream"
 import type { WordDefinition } from "@/types/vocabulary"
+import { browser } from "#imports"
 import { isLLMProviderConfig, isTranslateProviderConfig } from "@/types/config/provider"
+import { SELECTION_TRANSLATE_STREAM_PORT } from "@/types/selection-translate-stream"
 import { getLocalConfig } from "@/utils/config/storage"
 import { resolveProviderConfigOrNull } from "@/utils/constants/feature-providers"
 import { queryWordDefinitionStructured } from "@/utils/dict/dict-api"
-import { executeTranslate } from "@/utils/host/translate/execute-translate"
+import { executeTranslateStream } from "@/utils/host/translate/execute-translate"
 import { logger } from "@/utils/logger"
 import { onMessage } from "@/utils/message"
 import { getSelectionTranslatePrompt } from "@/utils/prompts/translate"
-
-/**
- * Translates a single selected text string.
- * - Single word → looks up via the configured dictionary REST API (`{baseUrl}/api/word/{word}`).
- * - Multiple words → uses the configured LLM/translate provider (existing AI translation).
- * Falls back to AI translation if the dictionary API returns no result.
- */
-async function translateSelectedText(data: { text: string, sourceLanguageCode?: string, targetLanguageCode?: string }): Promise<string | null> {
-  const wordCount = data.text.trim().split(/\s+/).length
-
-  // Single word: try dictionary REST API first, fall back to AI on failure
-  if (wordCount === 1) {
-    const dictResult = await translateSelectedTextStructured(data)
-    if (dictResult !== null) {
-      return formatDictAsText(dictResult)
-    }
-    // If dictionary API fails, fall through to AI translation
-    logger.info("[SelectionTranslate] Dictionary API returned no result, falling back to AI")
-  }
-
-  const config = await getLocalConfig()
-  if (!config) {
-    logger.error("[SelectionTranslate] No config found")
-    return null
-  }
-
-  const providerConfig = resolveProviderConfigOrNull(config, "translate")
-  if (!providerConfig) {
-    logger.error("[SelectionTranslate] No translate provider configured")
-    return null
-  }
-
-  if (!isTranslateProviderConfig(providerConfig) && !isLLMProviderConfig(providerConfig)) {
-    logger.error("[SelectionTranslate] Provider is not a translate provider")
-    return null
-  }
-
-  const langConfig: Config["language"] = {
-    sourceCode: (data.sourceLanguageCode ?? config.language.sourceCode) as Config["language"]["sourceCode"],
-    targetCode: (data.targetLanguageCode ?? config.language.targetCode) as Config["language"]["targetCode"],
-    level: config.language.level,
-  }
-
-  try {
-    // Selection translate uses its own built-in analysis prompt (English ->
-    // Chinese), independent from the page-translation custom prompts config.
-    const translatedText = await executeTranslate(
-      data.text,
-      langConfig,
-      providerConfig,
-      async (_targetLang: string, input: string) => {
-        return getSelectionTranslatePrompt(input)
-      },
-    )
-    return translatedText
-  }
-  catch (error) {
-    logger.error("[SelectionTranslate] Translation failed:", error)
-    return null
-  }
-}
 
 /**
  * Looks up a single word via the dictionary REST API and returns structured data.
@@ -91,32 +37,115 @@ async function translateSelectedTextStructured(data: { text: string }): Promise<
 }
 
 /**
- * Formats a structured WordDefinition into the plain text string used by the legacy UI.
+ * Translates one selection and streams the answer back through `onDelta`.
+ *
+ * Deliberately throws instead of answering a quiet `null`: over a port there is
+ * no return value to leave empty, and "no provider configured" is a
+ * configuration mistake the user can act on rather than a blank popover they
+ * have to guess about.
  */
-function formatDictAsText(data: WordDefinition): string {
-  const lines: string[] = []
-  lines.push(data.headword)
-  const ukPhonetic = data.phoneticUK ?? ""
-  const usPhonetic = data.phoneticUS ?? ""
-  if (ukPhonetic || usPhonetic) {
-    const parts: string[] = []
-    if (ukPhonetic)
-      parts.push(`英 ${ukPhonetic}`)
-    if (usPhonetic)
-      parts.push(`美 ${usPhonetic}`)
-    lines.push(parts.join(" "))
+async function translateSelectedTextStream(
+  data: SelectionTranslateStreamRequest,
+  onDelta: (delta: string) => void,
+): Promise<string> {
+  const config = await getLocalConfig()
+  if (!config) {
+    throw new Error("尚未读取到配置，请先在选项页保存一次设置")
   }
-  for (const sense of data.senses) {
-    const posLabel = data.pos ? `${data.pos}. ` : ""
-    lines.push(`${sense.number}. ${posLabel}${sense.chineseDefinition}`)
+
+  const providerConfig = resolveProviderConfigOrNull(config, "translate")
+  if (!providerConfig) {
+    throw new Error("尚未配置翻译服务商")
   }
-  return lines.join("\n")
+
+  if (!isTranslateProviderConfig(providerConfig) && !isLLMProviderConfig(providerConfig)) {
+    throw new Error("当前翻译服务商不是可用的 LLM/翻译服务商")
+  }
+
+  const langConfig: Config["language"] = {
+    sourceCode: (data.sourceLanguageCode ?? config.language.sourceCode) as Config["language"]["sourceCode"],
+    targetCode: (data.targetLanguageCode ?? config.language.targetCode) as Config["language"]["targetCode"],
+    level: config.language.level,
+  }
+
+  // Selection translate uses its own built-in analysis prompt (English ->
+  // Chinese), independent from the page-translation custom prompts config.
+  return await executeTranslateStream(
+    data.text,
+    langConfig,
+    providerConfig,
+    async (_targetLang: string, input: string) => {
+      return getSelectionTranslatePrompt(input)
+    },
+    onDelta,
+  )
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+/** Only the two methods this relay actually calls on the port it was handed. */
+type SelectionTranslatePort = Pick<Browser.runtime.Port, "postMessage" | "disconnect">
+
+/**
+ * Streams one selection translation to the tab that asked for it.
+ *
+ * The port is the whole channel: the toolbar posts its request, we push deltas
+ * back as the provider produces them, then close with `done` or `error` and
+ * hang up. Hanging up matters — a port left open keeps the service worker
+ * alive for a request that is long finished.
+ */
+async function relayStream(data: SelectionTranslateStreamRequest, port: SelectionTranslatePort) {
+  const post = (message: SelectionTranslateStreamMessage) => {
+    try {
+      port.postMessage(message)
+    }
+    catch (error) {
+      // The tab went away mid-stream (navigation, closed frame). Nothing left
+      // to tell, and throwing here would only surface as an unhandled rejection.
+      logger.warn("[SelectionTranslate] Stream port closed while posting", error)
+    }
+  }
+
+  try {
+    const translatedText = await translateSelectedTextStream(data, delta => post({ type: "delta", text: delta }))
+    post({ type: "done", text: translatedText })
+  }
+  catch (error) {
+    logger.error("[SelectionTranslate] Streaming translation failed:", error)
+    post({ type: "error", message: errorMessage(error) })
+  }
+  finally {
+    port.disconnect()
+  }
+}
+
+/**
+ * Opens the streaming selection-translate channel.
+ *
+ * One port, one request: the request rides the first `port.onMessage`, so a tab
+ * that clicks 翻译 twice simply gets two ports, and a port carrying no readable
+ * request is dropped without ever touching the provider.
+ */
+export function setupSelectionTranslateStreamHandler() {
+  browser.runtime.onConnect.addListener((port) => {
+    if (port.name !== SELECTION_TRANSLATE_STREAM_PORT) {
+      return
+    }
+
+    port.onMessage.addListener((message: SelectionTranslateStreamRequest) => {
+      if (typeof message?.text !== "string" || message.text.trim() === "") {
+        port.disconnect()
+        return
+      }
+
+      void relayStream(message, port)
+    })
+  })
 }
 
 export function setupSelectionTranslateHandler() {
-  onMessage("translateSelectedText", async (message) => {
-    return await translateSelectedText(message.data)
-  })
   onMessage("translateSelectedTextStructured", async (message) => {
     return await translateSelectedTextStructured(message.data)
   })
