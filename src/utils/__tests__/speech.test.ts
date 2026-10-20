@@ -8,9 +8,8 @@ const {
   buildGoogleTtsUrl,
   clearSpeechCache,
   resolveSpeechLang,
-  synthesizeSpeech,
   synthesizeSpeechAudio,
-} = await import("@/utils/review/speech")
+} = await import("@/utils/speech")
 
 /** Build a Response whose body is a real (tiny) MP3-framed byte array. */
 function audioResponse(bytes = new Uint8Array([0xFF, 0xFB, 0x90, 0x00]), contentType = "audio/mpeg") {
@@ -59,107 +58,6 @@ describe("buildGoogleTtsUrl", () => {
   })
 })
 
-describe("synthesizeSpeech", () => {
-  beforeEach(() => {
-    clearSpeechCache()
-  })
-
-  afterEach(() => {
-    vi.unstubAllGlobals()
-  })
-
-  it("fetches MP3 bytes and returns a playable data URL", async () => {
-    const fetchMock = vi.fn().mockImplementation(async () => audioResponse())
-    vi.stubGlobal("fetch", fetchMock)
-
-    const url = await synthesizeSpeech({ text: "ephemeral" })
-
-    // Round-trip the payload rather than trusting a hand-computed constant.
-    const [meta, base64] = url.split(",")
-    expect(meta).toBe("data:audio/mpeg;base64")
-    expect([...Uint8Array.from(atob(base64), c => c.charCodeAt(0))]).toEqual([0xFF, 0xFB, 0x90, 0x00])
-    expect(new URL(fetchMock.mock.calls[0][0]).hostname).toBe("translate.google.com")
-    // No cookies: the endpoint is anonymous and sending them only leaks them.
-    expect(fetchMock.mock.calls[0][1].credentials).toBe("omit")
-  })
-
-  it("passes the entry language through to the endpoint", async () => {
-    const fetchMock = vi.fn().mockImplementation(async () => audioResponse())
-    vi.stubGlobal("fetch", fetchMock)
-
-    await synthesizeSpeech({ text: "学习", sourceLanguage: "zho" })
-
-    expect(new URL(fetchMock.mock.calls[0][0]).searchParams.get("tl")).toBe("zh-CN")
-  })
-
-  it("serves a repeated word from the cache instead of asking again", async () => {
-    const fetchMock = vi.fn().mockImplementation(async () => audioResponse())
-    vi.stubGlobal("fetch", fetchMock)
-
-    const first = await synthesizeSpeech({ text: "ephemeral" })
-    const second = await synthesizeSpeech({ text: "ephemeral" })
-
-    expect(fetchMock).toHaveBeenCalledTimes(1)
-    expect(second).toBe(first)
-  })
-
-  it("keys the cache by language too, so the same word in two languages differs", async () => {
-    const fetchMock = vi.fn().mockImplementation(async () => audioResponse())
-    vi.stubGlobal("fetch", fetchMock)
-
-    await synthesizeSpeech({ text: "review", sourceLanguage: "eng" })
-    await synthesizeSpeech({ text: "review", sourceLanguage: "fra" })
-
-    expect(fetchMock).toHaveBeenCalledTimes(2)
-  })
-
-  it("keeps the cache from growing without bound", async () => {
-    const fetchMock = vi.fn().mockImplementation(async () => audioResponse())
-    vi.stubGlobal("fetch", fetchMock)
-
-    for (let i = 0; i < 45; i++) {
-      await synthesizeSpeech({ text: `word${i}` })
-    }
-    // The oldest entry is evicted, so the first word costs a second request.
-    await synthesizeSpeech({ text: "word0" })
-
-    expect(fetchMock).toHaveBeenCalledTimes(46)
-  })
-
-  it("rejects an empty request without touching the network", async () => {
-    const fetchMock = vi.fn()
-    vi.stubGlobal("fetch", fetchMock)
-
-    await expect(synthesizeSpeech({ text: "   " })).rejects.toThrow(/Nothing to pronounce/)
-    expect(fetchMock).not.toHaveBeenCalled()
-  })
-
-  it("surfaces an HTTP failure instead of caching an error", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response("nope", { status: 429 }))
-    vi.stubGlobal("fetch", fetchMock)
-
-    await expect(synthesizeSpeech({ text: "ephemeral" })).rejects.toThrow(/429/)
-    // A later attempt must retry rather than replay the failure.
-    await expect(synthesizeSpeech({ text: "ephemeral" })).rejects.toThrow(/429/)
-    expect(fetchMock).toHaveBeenCalledTimes(2)
-  })
-
-  it("rejects a rate-limit page served with a 200", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response("<html>rate limited</html>", { status: 200, headers: { "content-type": "text/html" } }),
-    )
-    vi.stubGlobal("fetch", fetchMock)
-
-    await expect(synthesizeSpeech({ text: "ephemeral" })).rejects.toThrow(/non-audio body/)
-  })
-
-  it("reports a transport failure", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network down")))
-
-    await expect(synthesizeSpeech({ text: "ephemeral" })).rejects.toThrow(/network down/)
-  })
-})
-
 describe("synthesizeSpeechAudio", () => {
   beforeEach(() => {
     clearSpeechCache()
@@ -192,18 +90,58 @@ describe("synthesizeSpeechAudio", () => {
     expect([...Uint8Array.from(atob(survived), c => c.charCodeAt(0))]).toEqual([0xFF, 0xFB, 0x90, 0x00])
   })
 
-  it("shares the cache with the data URL path instead of asking twice", async () => {
+  it("fetches MP3 bytes from the expected endpoint without cookies", async () => {
     const fetchMock = vi.fn().mockImplementation(async () => audioResponse())
     vi.stubGlobal("fetch", fetchMock)
 
-    const payload = await synthesizeSpeechAudio({ text: "ephemeral" })
-    const url = await synthesizeSpeech({ text: "ephemeral" })
+    await synthesizeSpeechAudio({ text: "ephemeral" })
+
+    expect(new URL(fetchMock.mock.calls[0][0]).hostname).toBe("translate.google.com")
+    // No cookies: the endpoint is anonymous and sending them only leaks them.
+    expect(fetchMock.mock.calls[0][1].credentials).toBe("omit")
+  })
+
+  it("passes the entry language through to the endpoint", async () => {
+    const fetchMock = vi.fn().mockImplementation(async () => audioResponse())
+    vi.stubGlobal("fetch", fetchMock)
+
+    await synthesizeSpeechAudio({ text: "学习", sourceLanguage: "zho" })
+
+    expect(new URL(fetchMock.mock.calls[0][0]).searchParams.get("tl")).toBe("zh-CN")
+  })
+
+  it("serves a repeated word from the cache instead of asking again", async () => {
+    const fetchMock = vi.fn().mockImplementation(async () => audioResponse())
+    vi.stubGlobal("fetch", fetchMock)
+
+    const first = await synthesizeSpeechAudio({ text: "ephemeral" })
+    const second = await synthesizeSpeechAudio({ text: "ephemeral" })
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
-    // Both exits describe the same clip.
-    const [meta, base64] = url.split(",")
-    expect(meta).toBe("data:audio/mpeg;base64")
-    expect(base64).toBe(payload)
+    expect(second).toBe(first)
+  })
+
+  it("keys the cache by language too, so the same word in two languages differs", async () => {
+    const fetchMock = vi.fn().mockImplementation(async () => audioResponse())
+    vi.stubGlobal("fetch", fetchMock)
+
+    await synthesizeSpeechAudio({ text: "review", sourceLanguage: "eng" })
+    await synthesizeSpeechAudio({ text: "review", sourceLanguage: "fra" })
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it("keeps the cache from growing without bound", async () => {
+    const fetchMock = vi.fn().mockImplementation(async () => audioResponse())
+    vi.stubGlobal("fetch", fetchMock)
+
+    for (let i = 0; i < 45; i++) {
+      await synthesizeSpeechAudio({ text: `word${i}` })
+    }
+    // The oldest entry is evicted, so the first word costs a second request.
+    await synthesizeSpeechAudio({ text: "word0" })
+
+    expect(fetchMock).toHaveBeenCalledTimes(46)
   })
 
   it("rejects an empty request without touching the network", async () => {
@@ -212,5 +150,29 @@ describe("synthesizeSpeechAudio", () => {
 
     await expect(synthesizeSpeechAudio({ text: "   " })).rejects.toThrow(/Nothing to pronounce/)
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it("surfaces an HTTP failure instead of caching an error", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("nope", { status: 429 }))
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(synthesizeSpeechAudio({ text: "ephemeral" })).rejects.toThrow(/429/)
+    // A later attempt must retry rather than replay the failure.
+    await expect(synthesizeSpeechAudio({ text: "ephemeral" })).rejects.toThrow(/429/)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it("rejects a rate-limit page served with a 200", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
+      new Response("<html>rate limited</html>", { status: 200, headers: { "content-type": "text/html" } }),
+    ))
+
+    await expect(synthesizeSpeechAudio({ text: "ephemeral" })).rejects.toThrow(/non-audio body/)
+  })
+
+  it("reports a transport failure", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network down")))
+
+    await expect(synthesizeSpeechAudio({ text: "ephemeral" })).rejects.toThrow(/network down/)
   })
 })

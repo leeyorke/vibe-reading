@@ -20,7 +20,6 @@ export default defineConfig({
       "storage",
       "tabs",
       "alarms",
-      "notifications",
       "scripting",
       "webNavigation",
     ],

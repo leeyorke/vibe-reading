@@ -50,11 +50,9 @@
 - **`src/entrypoints/host.content/selection-toolbar/`** — 划线浮动工具栏: 选区监听 Hook (`use-text-selection.ts`)、工具栏组件（翻译 + 朗读 + 收藏）、朗读播放 hook (`use-speech-playback.ts`)、选中文字的语言猜测 (`guess-speech-lang.ts`)、Shadow DOM 挂载
 - **`src/entrypoints/background/selection-translate.ts`** — 选中文本翻译处理器（单条翻译，不走批处理队列）
 - **`src/entrypoints/background/vocabulary-handlers.ts`** — 生词本 CRUD + 闪卡会话消息处理器
-- **`src/entrypoints/background/review-scheduler.ts`** — 艾宾浩斯主动推送:自重排单次 `browser.alarms` (当 `periodInMinutes` 被浏览器强制 ≥1 分钟时,用 `when` 精确唤醒) → `runReviewTick()` → 系统通知;注册 `notifications.onClicked / onClosed`
-- **`src/entrypoints/review-card/`** — 独立复习卡片页 (`review-card.html`): 从通知点击打开，展示单词/音标/例句/中文/固定搭配 + 「记住了/没记住」
-- **`src/utils/review/`** — SRS 纯逻辑 (`schedule.ts`: 阶段推进/静默期/配额)、本地状态 (`store.ts`)、队列同步 (`queue-sync.ts`)、卡片组装 (`review-card.ts`)、例句生成 (`example-generator.ts`)、通知构造 (`notify.ts`)、朗读 (`speech.ts`)、词典文本解析 (`definition-lines.ts`)
-- **`src/entrypoints/background/review-handlers.ts`** — `/review` 选项页与复习卡片页的消息处理器 (状态/立即同步/清空队列/取卡片/评分)
-- **`src/entrypoints/background/speech-handlers.ts`** — 发音消息处理器：`synthesizeSpeech`（复习卡片页要的 `data:` URL）和 `synthesizeSpeechAudio`（悬浮工具栏要的 base64 文本）。两个出口是因为两种调用方活在不同的世界：扩展页可以直接 `new Audio(dataUrl)`，content script 不行，见下面 Notes 的说明
+- **`src/entrypoints/background/speech-handlers.ts`** — 发音消息处理器：`synthesizeSpeechAudio`（悬浮工具栏要的 base64 文本）。见下面 Notes 的说明
+- **`src/utils/speech.ts`** — 朗读核心：Google Translate TTS 端点的 URL 构造、语言映射、音频缓存、base64 编码
+- **`src/utils/vocabulary/definition-lines.ts`** — 词典文本解析：把多行释义拆成「音标行 + 释义行」，闪卡页用
 - **`src/entrypoints/options/pages/vocabulary/`** — 生词本管理页: 搜索、排序、分页、星级修改、删除
 - **`src/entrypoints/options/pages/flashcards/`** — 闪卡复习页: 正面单词 → 翻转显示译文 → 1-5星评分 → 完成统计
 
@@ -75,13 +73,9 @@
 - **划线翻译的两个位置分工**: 结果卡片默认 `position: fixed` 钉在视口右侧居中（`right:16px; top:50%`），拖动手柄可改，一次新的翻译会重置回默认位；悬浮胶囊（翻译/朗读/收藏）继续贴住划线，滚动页面时跟着文字走。**胶囊和卡片都在 `toolbarRef` 这同一个 wrapper 里**——选区钩子把 wrapper 当成「内部」，卡片一旦被搬出去，滚动结果卡片就会被判成「点了外部」，`hideToolbar()` 清掉 `lastRangeRef`，胶囊从此不再跟随
 - **生词本收藏**: `sendMessage("addVocabularyWord")` → background 写入 Dexie `vocabularyWords` 表（同词+同URL去重），默认 `star=3`
 - **闪卡复习**: `sendMessage("getFlashcardSession")` → weighted random 抽取 10 个单词（低星高权重），`markWordReviewed` 更新星级和复习次数
-- **主动推送复习 (Ebbinghaus)**: SRS 状态**只存本地** `chrome.storage.local` (`local:review:*`)，因为后端 `/api/vocabulary` 没有「上次推送时间」字段；推送走词条快照，不依赖后端在线。间隔阶梯 `SRS_INTERVALS_MINUTES` = 5m/30m/12h/1d/2d/4d/7d/15d，到点自动推进 (`advanceStage`)，在卡片页点「记住了/没记住」只做 ±2/−1 修正。例句复用 `config.translate.providerId`（**不新增 `FEATURE_KEY`**，否则 `configSchema.superRefine` 会让老配置解析失败、`initializeConfig` 直接重置整个配置）；新配置块用 `.prefault({})` 而非 `.default({})`，同样是为了老配置兼容
-- **通知只是门铃，不带按钮**: Windows 通知中心折叠态只渲染一行标题，任何按钮都点不到。所以通知只做「提醒 + 点击开卡片页」这一个动作，评分按钮放在卡片页底部。卡片页通过 `openReviewCard` 复用同一个标签页（`tabs.query` + `tabs.update` + `windows.update`），一天推十几条也不会堆成一堆标签
-- **复习会话走 `pendingReview` 而非「已到期」**: 词条在到期那一刻才被推送，所以卡片推进到下一个词时，其他词**一个都没到期**——按 `nextDueAt <= now` 找下一个词会让会话立刻死胡同。推送时置 `entry.pendingReview = true`，评分时置 `false`，卡片按 `lastNotifiedAt` 升序取下一个待评价词
-- **例句 / 固定搭配 / 例句翻译在推送时一次 LLM 调用产出**: 卡片页因此不需要任何网络等待或加载态。prompt 要求严格 JSON，用 `parseExamplePayload` 容错解析（剥 ```json 围栏、取首尾花括号、逐字段校验），任一步失败整包丢弃并降级到收藏时的原句
+- **主动推送复习 (Ebbinghaus) 已迁到后端**: 复习提醒整套逻辑（艾宾浩斯阶梯、免打扰时段、每日配额、Windows 通知、复习卡片）现在在 `D:\myworkspace\mdx`（FastAPI 后端，入口 `app/review/`），扩展侧只保留生词本与闪卡。闪卡评分会调后端 `POST /api/vocabulary/{id}/review` 累加 `review_count`、写 `last_reviewed_at`——后端正是靠这个字段挑出「复习过一次」的词进入艾宾浩斯队列。**别把提醒逻辑搬回扩展**：`notifications` 权限已经移除，`browser.alarms` 只剩下 db-cleanup 在用
 - **WXT storage key 必须带区域前缀** (`local:` / `session:`)，裸 key 会被 `resolveKey` 当成非法 area 抛错
-- **卡片页发音走 Google Translate 的 TTS 端点** (`translate.google.com/translate_tts`, `client=gtx`)，请求放在 background 里做并缓存成 `data:` URL 返回。不要退回 `speechSynthesis`——它静默依赖系统已安装的英语语音包，纯净的 Windows 上没有，按钮点了等于没点。**微软那条走不通**：Edge readaloud 端点会拒绝所有缺少 `Sec-MS-GEC` 令牌的请求，而该令牌由 Windows machine id 推导，属于反自动化控制而非接口怪癖，别去绕
-- **`/review` 设置页有「立即推送一条」和「打开复习卡片」两个调试入口**，别删：否则卡片页只能等推送才能看。`runReviewNow` 直接调 alarm 调的同一个 `runReviewTick()`，**没有**绕过静默期/每日上限的强制推送路径——测试不该偷偷破坏 SRS 阶梯
+- **发音走 Google Translate 的 TTS 端点** (`translate.google.com/translate_tts`, `client=gtx`)，请求放在 background 里做并缓存成 base64 返回。不要退回 `speechSynthesis`——它静默依赖系统已安装的英语语音包，纯净的 Windows 上没有，按钮点了等于没点。**微软那条走不通**：Edge readaloud 端点会拒绝所有缺少 `Sec-MS-GEC` 令牌的请求，而该令牌由 Windows machine id 推导，属于反自动化控制而非接口怪癖，别去绕
 - **React**: 函数组件 + hooks, JSX 使用 `react-jsx` transform, `useCallback`/`useMemo` 适度使用
 - **错误边界**: `react-error-boundary` + 自定义 `RecoveryBoundary` 组件
 
@@ -96,8 +90,7 @@
 - **重新加载扩展后必须刷新页面，否则 content script 是孤魂野鬼**: Chrome 不会给已打开的标签页重新注入 content script——旧脚本继续跑、工具栏继续响应点击，但它所有的 `chrome.*` binding 已被拆除，任何调用都以 "Extension context invalidated"（或参数 shim 读不到 `.length` 抛的 TypeError）失败，而 background 根本没被唤醒（HAR 里什么都看不到）。`chrome://extensions` 的错误页会把这些未捕获的 rejection 列在对应页面 URL 下，是诊断这个问题的第一现场。防线有三层：`message-retry.ts` 靠 `chrome.runtime.id` 探测并把错误换成「扩展已重新加载，请刷新页面后重试」；工具栏每秒轮询同一个探针，一旦中招就把三个按钮换成可点击的「刷新页面」片（`selection-toolbar.tsx`）；两个 content script 的 `main()` 都包了 try/catch，启动期遇失效只打日志、不留未捕获异常。**每次 reload 扩展后都要 F5 页面**；跑 `pnpm dev` 时每次源码改动触发扩展自 reload，更要记得刷新页面
 - **「扩展已重新加载，请刷新页面后重试」只有探针说了才算**: `message-retry.ts` 曾经还把 polyfill 那种 `Cannot read properties of undefined (reading 'length')` TypeError 也当失效信号——结果自家代码抛同一个 message 时（词典 payload 少一个 `examples` 字段，`toWordDefinition` 解引用 throws），用户被指去刷新一个根本没失效的页面，且刷新永远治不好。V8 的 TypeError 文案分不清是 binding shim 还是业务代码，所以**消息匹配只保留点名 binding 的那条**（`.sendMessage is not a function`），其余一律以 `isExtensionContextInvalidated()`（`runtime.id`/`sendMessage` 直接探）为准。同理，业务侧不能让畸形 payload 变成 throw：词典 backend 是用户自己跑的本地服务，entry 形状不统一（`phonetics`/`senses`/`examples` 都可能缺），`dict-api.ts` 的 `isUsableWordPayload` 按「至少一个 sense」判读并全链路可选链，`selection-translate.ts` 的 handler 也包 try/catch 返回 null——null 是工具栏唯一认识的「miss」，它自然会回落到 LLM 翻译
 - **每次页面加载都会打一次 LLM 语言检测请求**（预存设计，不是划线翻译）: `host.content/runtime.ts` 结尾对 top frame 调 `detectAndReportPageLanguage` → `detectPageLanguageLightweight`（`utils/content/page-language.ts`）→ `detectLanguageWithSource` → `detectLanguageWithLLM`（`utils/content/language.ts`），页面正文 ≥80 字符就走 LLM。所以刷新任意网页都会看到一个 `/chat/completions` 请求——用户在排查工具栏问题时容易把它误当成「翻译按钮走了 LLM」。单次划词翻译的走向是：单词 → `translateSelectedTextStructured` → 本地词典 `{backendBaseUrl}/api/word/{word}`，返回 null 才回落到 LLM
-- **划线的发音语言只能按文字脚本猜** (`guess-speech-lang.ts`): 假名→ja（要先于汉字判断，否则日语被当中文）、谚文→ko、汉字→zh、西里尔→ru 等；拉丁文字一律 `en`。复习卡片那边词条自带 `sourceLanguage`，工具栏这边页面语言不可靠（法文页面上的英文引语），脚本是唯一诚实信号
-- **复习调度器的启动同步必须看 `review.enabled` 开关**（a176be5 的修复记录）: `setupReviewScheduler()` 原来在**每次 worker 唤醒**时都调 `syncReviewQueue()`，而 MV3 的 SW 会为每条 content script 消息唤醒一次——等于每次点「翻译」都要先打一遍 `/api/vocabulary`，即使功能从来是关闭的（默认关闭）。现在开关关着只清 alarm、不碰后端。另外一个隐蔽点：`syncReviewQueue` 的限流条件是 `state.lastSyncAt != null`，首次同步前（或后端挂导致同步失败、`lastSyncAt` 一直写不进去时）限流完全旁路，每次唤醒都会重试——后端长时间不可用时这就是个每消息一次的请求风暴，改限流时记得一起考虑失败退避
+- **划线的发音语言只能按文字脚本猜** (`guess-speech-lang.ts`): 假名→ja（要先于汉字判断，否则日语被当中文）、谚文→ko、汉字→zh、西里尔→ru 等；拉丁文字一律 `en`。页面语言不可靠（法文页面上的英文引语），脚本是唯一诚实信号
 - **诊断「按钮报错但 HAR 全正常」时先看 `chrome://extensions` 的错误页**: 那里的 "Uncaught (in promise): Error: Extension context invalidated" + 堆桩指向哪个 content script，直接说明页面里跑的是**已被失效的旧脚本**（扩展被 reload 过而页面没刷新）。堆桩落在 bundle 的模块求值处（如 `selection.js:5:1`）说明是**启动期**就带着失效上下文在跑；此时 background 根本没被唤醒，HAR 自然什么都没有。content script 的 `main()` 全量 try/catch 可以把这种噪声挡在日志里
 - **Edge 桌面应用（PWA 独立窗口）和其它标签页对 content script 一视同仁**: 从快捷方式启动的 PWA 窗口是全新页面加载，content script 注入时上下文健康，所以它"看起来正常"；而排查期间被反复 reload 扩展的老标签页脚本全部失效。别被"PWA 能用"误导——那通常只证明它是刚启动的。真正判断标准： reload 扩展后**每一个**开着的页面（含 PWA 窗口，Ctrl+R 或从快捷方式重启）都要刷新
 - **胶囊跟着划线走，靠的是「滚动时重新量一次」而不是跟着滚动条平移**: `useTextSelection` 只在**选取那一刻**调一次 `range.getBoundingClientRect()`（viewport 坐标），所以滚动后必须重新量才追得上文字。三个坑：(1) 滚动监听必须 `capture: true`——`overflow:auto` 容器里的滚动事件根本不冒泡到 `window`，而页面里这种东西一片一片的；(2) 每个滚动事件都要付钱，所以用 rAF 合并成一帧一次，且 `lastRangeRef == null`（没选区/已关闭）时直接 return；(3) 点击 Shadow DOM 里的工具栏会清掉文档选区，所以钩子额外存了一份 `lastRangeRef`（cloneRange），滚动时「有活的选区就读活的，没有就读存的那份」——少了这一份，点完「翻译」再滚动，胶囊就钉死在原地不动了

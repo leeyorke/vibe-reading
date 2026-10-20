@@ -1,9 +1,9 @@
-import { TTS_DEFAULT_LANG } from "@/utils/constants/review"
+import { TTS_DEFAULT_LANG } from "@/utils/constants/speech"
 import { logger } from "@/utils/logger"
 
 /**
- * Text-to-speech for anything that has a headword or a sentence to pronounce:
- * the review card page, and the selection toolbar.
+ * Text-to-speech for anything that has a sentence to pronounce — currently the
+ * selection toolbar.
  *
  * The browser's own `speechSynthesis` was dropped first: it silently depends on
  * an English voice pack being installed, and on a bare Windows profile there
@@ -59,8 +59,8 @@ const ISO_639_3_TO_BCP_47: Record<string, string> = {
  * as the worker and dies with it, which is also what we want: holding
  * megabytes of audio is not worth persisting.
  *
- * The raw bytes are what is cached; the `data:` URL the review card wants is
- * derived from them on demand, so one fetch serves both callers.
+ * The raw bytes are what is cached; the base64 the toolbar wants is derived
+ * from them on demand, so one fetch serves every caller.
  */
 const audioCache = new Map<string, CachedAudio>()
 const AUDIO_CACHE_LIMIT = 40
@@ -131,23 +131,6 @@ function encodeAudioBase64(buffer: ArrayBuffer): string {
   return btoa(binary)
 }
 
-function encodeToDataUrl(buffer: ArrayBuffer, mimeType: string): string {
-  return `data:${mimeType};base64,${encodeAudioBase64(buffer)}`
-}
-
-/**
- * Fetch pronunciation audio and return it as a `data:` URL the card can hand
- * straight to an `Audio` element.
- *
- * A data URL rather than a blob URL on purpose: the page has no teardown to
- * hook, so revoking object URLs would be a lifecycle bug waiting to happen,
- * and these clips are a few kilobytes.
- */
-export async function synthesizeSpeech(input: SynthesizeSpeechInput): Promise<string> {
-  const { buffer, mimeType } = await fetchCachedAudio(input)
-  return encodeToDataUrl(buffer, mimeType)
-}
-
 /**
  * Fetch pronunciation audio as base64 text for a Web Audio caller.
  *
@@ -160,9 +143,7 @@ export async function synthesizeSpeech(input: SynthesizeSpeechInput): Promise<st
  * the toolbar turns it back into bytes before decoding.
  *
  * (`runtime.connect` ports do carry a buffer, but a port is another lifecycle
- * to manage for a few kilobytes.) The review card keeps its `data:` URL from
- * {@link synthesizeSpeech} because it lives in an extension page and plays it
- * through an `<audio>` element.
+ * to manage for a few kilobytes.)
  */
 export async function synthesizeSpeechAudio(input: SynthesizeSpeechInput): Promise<string> {
   const { buffer } = await fetchCachedAudio(input)

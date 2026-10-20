@@ -159,8 +159,8 @@ export async function queryWordDefinition(word: string): Promise<string | null> 
  * Maps the raw dictionary payload onto {@link WordDefinition}.
  *
  * A missing gloss, phonetic block or example list is dropped rather than
- * defaulted to `""` so that the review card and the toolbar hide those rows
- * instead of rendering blanks.
+ * defaulted to `""` so that the toolbar hides those rows instead of rendering
+ * blanks.
  */
 function toWordDefinition(data: WordResponse): WordDefinition {
   return {

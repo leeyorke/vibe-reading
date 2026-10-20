@@ -8,8 +8,6 @@ import { cleanupAllSummaryCache, cleanupAllTranslationCache, setUpDatabaseCleanu
 import { setupIframeInjection } from "./iframe-injection"
 import { setupLLMGenerateTextMessageHandlers } from "./llm-generate-text"
 import { proxyFetch } from "./proxy-fetch"
-import { setupReviewMessageHandlers } from "./review-handlers"
-import { setupReviewScheduler } from "./review-scheduler"
 import { setupSelectionTranslateHandler, setupSelectionTranslateStreamHandler } from "./selection-translate"
 import { setupSpeechMessageHandlers } from "./speech-handlers"
 import { setUpWebPageTranslationQueue } from "./translation-queues"
@@ -60,12 +58,7 @@ export default defineBackground({
     // Handle vocabulary and flashcard message requests
     setupVocabularyMessageHandlers()
 
-    // Pronunciation for the review card page and the selection toolbar
+    // Pronunciation for the selection toolbar
     setupSpeechMessageHandlers()
-
-    // Ebbinghaus push-review: a self-rescheduling alarm that notifies the OS
-    // when a previously reviewed word is due for another look.
-    setupReviewScheduler()
-    setupReviewMessageHandlers()
   },
 })

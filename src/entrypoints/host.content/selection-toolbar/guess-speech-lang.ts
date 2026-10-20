@@ -1,12 +1,11 @@
 /**
  * Guess which language a page selection should be pronounced in.
  *
- * The review card knows the source language of every word it speaks, because
- * the vocabulary entry carries one. A page selection knows nothing about the
- * page it came from, so the script the text is written in is the only honest
- * signal — and it is a good one for exactly the cases that matter: an English
- * headword or sentence on a page in any language, and non-Latin selections
- * (Chinese, Japanese, Korean) that an English voice would mangle.
+ * A page selection knows nothing about the page it came from, so the script the
+ * text is written in is the only honest signal — and it is a good one for
+ * exactly the cases that matter: an English headword or sentence on a page in
+ * any language, and non-Latin selections (Chinese, Japanese, Korean) that an
+ * English voice would mangle.
  *
  * The result is fed to `resolveSpeechLang`, so anything this cannot place
  * lands on its English default instead of failing.

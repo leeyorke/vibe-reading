@@ -4,7 +4,6 @@ vi.mock("@/utils/logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }))
 
-const synthesizeSpeechMock = vi.fn()
 const synthesizeSpeechAudioMock = vi.fn()
 const onMessageMock = vi.fn()
 
@@ -12,8 +11,7 @@ vi.mock("@/utils/message", () => ({
   onMessage: (...args: unknown[]) => onMessageMock(...args),
 }))
 
-vi.mock("@/utils/review/speech", () => ({
-  synthesizeSpeech: (...args: unknown[]) => synthesizeSpeechMock(...args),
+vi.mock("@/utils/speech", () => ({
   synthesizeSpeechAudio: (...args: unknown[]) => synthesizeSpeechAudioMock(...args),
 }))
 
@@ -37,14 +35,6 @@ describe("speech message handlers", () => {
     vi.clearAllMocks()
   })
 
-  it("hands the review card a playable data URL", async () => {
-    synthesizeSpeechMock.mockResolvedValue("data:audio/mpeg;base64,AAAA")
-    const handler = captureHandlers().get("synthesizeSpeech")!
-
-    expect(await handler({ data: { text: "ephemeral" } })).toBe("data:audio/mpeg;base64,AAAA")
-    expect(synthesizeSpeechMock).toHaveBeenCalledWith({ text: "ephemeral" })
-  })
-
   it("hands the toolbar base64 text it can decode", async () => {
     synthesizeSpeechAudioMock.mockResolvedValue(btoa("\u00FF\u00FB\u0090\u0000"))
     const handler = captureHandlers().get("synthesizeSpeechAudio")!
@@ -54,13 +44,6 @@ describe("speech message handlers", () => {
     expect(typeof payload).toBe("string")
     expect(synthesizeSpeechAudioMock).toHaveBeenCalledWith({ text: "ephemeral", sourceLanguage: "en" })
     expect(JSON.parse(JSON.stringify(payload))).toBe(payload)
-  })
-
-  it("wraps a failure so the caller can show it", async () => {
-    synthesizeSpeechMock.mockRejectedValue(new Error("Google TTS responded 429"))
-    const handler = captureHandlers().get("synthesizeSpeech")!
-
-    await expect(handler({ data: { text: "ephemeral" } })).rejects.toThrow(/发音生成失败/)
   })
 
   it("never lets a speech failure look like an empty answer", async () => {
