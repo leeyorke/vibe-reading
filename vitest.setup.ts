@@ -97,17 +97,18 @@ class ESBuildAndJSDOMCompatibleTextEncoder extends TextEncoder {
   }
 
   encode(input: string) {
-    if (typeof input !== "string") {
-      throw new TypeError("`input` must be a string")
-    }
-
-    const decodedURI = decodeURIComponent(encodeURIComponent(input))
-    const arr = new Uint8Array(decodedURI.length)
-    const chars = decodedURI.split("")
-    for (let i = 0; i < chars.length; i++) {
-      arr[i] = decodedURI[i].charCodeAt(0)
-    }
-    return arr
+    // Let the native encoder produce the bytes, then copy them into a
+    // Uint8Array of this realm.
+    //
+    // The previous implementation encoded by hand and kept only the low byte
+    // of every character (`charCodeAt(0)`), so every non-ASCII character was
+    // mangled into a single garbage byte ("短暂" became "ad\uFFFD\uFFFD").
+    // Nothing noticed until a test sent a Chinese string through
+    // `new Response(...)`: undici captures the global TextEncoder when it
+    // loads, so — depending on the import order — the response body was
+    // encoded with the broken one and the JSON came back as mojibake. It
+    // only showed up on CI, which is the worst kind of bug to chase.
+    return Uint8Array.from(super.encode(input))
   }
 }
 
