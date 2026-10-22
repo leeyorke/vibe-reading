@@ -1,7 +1,7 @@
 {
   "name": "@vibe-reading/extension",
   "type": "module",
-  "version": "1.40.0",
+  "version": "1.41.0",
   "private": true,
   "packageManager": "pnpm@10.33.4",
   "description": "Vibe Reading browser extension for language learning",
@@ -101,7 +101,7 @@
     "eslint-plugin-react-refresh": "^0.5.2",
     "husky": "^9.1.7",
     "jsdom": "^29.1.1",
-    "lint-staged": "^17.0.7",
+    "lint-staged": "^17.6.0",
     "nx": "^22.7.5",
     "postcss": "^8.5.15",
     "postcss-rem-to-responsive-pixel": "^7.0.4",
