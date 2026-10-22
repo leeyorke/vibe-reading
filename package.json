@@ -25,7 +25,8 @@
     "zip:edge": "wxt zip -b edge",
     "zip:firefox": "wxt zip -b firefox --mv3",
     "zip:all": "pnpm zip && pnpm zip:edge && pnpm zip:firefox",
-    "prepare": "husky"
+    "prepare": "husky",
+    "release": "node scripts/release.mjs"
   },
   "dependencies": {
     "@ai-sdk/deepseek": "^2.0.36",

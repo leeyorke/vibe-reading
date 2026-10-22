@@ -89,6 +89,37 @@
 - **React**: 函数组件 + hooks, JSX 使用 `react-jsx` transform, `useCallback`/`useMemo` 适度使用
 - **错误边界**: `react-error-boundary` + 自定义 `RecoveryBoundary` 组件
 
+## 发版流程
+
+**每次发版 = 一个新提交 + 一个打在这个提交上的 tag。** 规则是死的，CI 会校验：
+
+1. **发版提交**：单独起一个提交，提交信息**正好**是 `chore: release v.X.Y.Z`（不能带别的字）
+2. **版本号**：这个提交把 `package.json` 的 `version` 改成 `X.Y.Z`（`v1.39.1` → 版本 `1.39.1`）
+3. **tag**：`v.X.Y.Z` 打在**上面那个提交**上（不是打在别的提交上）
+4. **不重打已发布的 tag**：要改已发布的内容就发新的版本号。想重打就得改写历史，会把
+   已经发出去的 Release 指向一个不存在的提交
+
+一条命令走完（`scripts/release.mjs`，会检查工作区干净、在 main 上、tag 不存在）：
+
+```bash
+pnpm release patch          # 1.39.0 -> 1.39.1
+pnpm release minor          # 1.39.0 -> 1.40.0
+pnpm release major          # 1.39.0 -> 2.0.0
+pnpm release 1.40.0        # 指定版本
+pnpm release patch --push  # 顺便把 main 和 tag 都推上去
+```
+
+推 tag 之后 GitHub Actions 会自动打包并发布 Release（`.github/workflows/build.yml` 的
+`Publish GitHub Release` job）。
+
+**CI 的两道校验**（`build.yml` 的 `Resolve release tag` 步骤，不满足就**不发版**）：
+
+- tag 名必须等于 `v${package.json 的 version}`
+- tag 指向的提交的标题必须等于 `chore: release ${tag}`
+
+**main 推送只构建、不发版**（release job 的 `if` 只认 `refs/tags/v`）。以前 main 推送
+也会尝试自己打 tag，于是「tag 已存在」每次都把 CI 弄红——现在这个 job 根本不跑。
+
 ## Notes
 
 <!-- 快速备注区: 在此追加临时发现或小贴士 -->

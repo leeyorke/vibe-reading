@@ -59,7 +59,10 @@ jobs:
     name: Publish GitHub Release
     runs-on: ubuntu-latest
     needs: build
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    # 只在 tag 推送时发版。tag 由人按规则打好（见 AGENTS.md「发版流程」）：
+    # 一个 `chore: release v.X.Y.Z` 提交 + 打在它上面的同名 tag。
+    # main 推送只构建、不发版。
+    if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write
 
@@ -72,25 +75,24 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
-            echo "tag_name=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
           VERSION="$(node -p "require('./package.json').version")"
-          TAG_NAME="v${VERSION}"
+          TAG_NAME="$GITHUB_REF_NAME"
+          EXPECTED="v${VERSION}"
 
-          if git ls-remote --exit-code --tags origin "refs/tags/${TAG_NAME}" >/dev/null; then
-            echo "::error::Release tag ${TAG_NAME} already exists. Bump package.json version before merging."
+          # tag 名必须和 package.json 的版本对得上
+          if [ "$TAG_NAME" != "$EXPECTED" ]; then
+            echo "::error::tag ${TAG_NAME} 与 package.json 的版本 ${VERSION} 对不上（应该是 ${EXPECTED}）"
             exit 1
           fi
 
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag "$TAG_NAME" "$GITHUB_SHA"
-          git push origin "$TAG_NAME"
+          # 发版提交的信息必须正好是 "chore: release v.X.Y.Z"
+          SUBJECT="$(git log -1 --format=%s HEAD)"
+          if [ "$SUBJECT" != "chore: release ${TAG_NAME}" ]; then
+            echo "::error::发版提交的标题必须是「chore: release ${TAG_NAME}」，实际是「${SUBJECT}」"
+            exit 1
+          fi
 
-          echo "tag_name=$TAG_NAME" >> "$GITHUB_OUTPUT"
+          echo "tag_name=${TAG_NAME}" >> "$GITHUB_OUTPUT"
 
       - name: Download extension packages
         uses: actions/download-artifact@v4
