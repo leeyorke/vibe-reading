@@ -47,14 +47,22 @@
 - **`src/locales/`** — i18n 翻译文件 (YAML, 9 种语言: en/zh-CN/zh-TW/ja/ko/es/ru/vi/tr)
 - **`src/definitions/index.ts`** — 集中的常量/枚举定义 (语言代码、provider 定义等)
 - **`src/utils/db/`** — IndexedDB (Dexie) 缓存层: 翻译缓存、摘要缓存、生词本词汇表 (`vocabularyWords`)
-- **`src/entrypoints/host.content/selection-toolbar/`** — 划线浮动工具栏: 选区监听 Hook (`use-text-selection.ts`)、工具栏组件（翻译 + 朗读 + 收藏）、朗读播放 hook (`use-speech-playback.ts`)、选中文字的语言猜测 (`guess-speech-lang.ts`)、Shadow DOM 挂载
+- **`src/entrypoints/host.content/selection-toolbar/`** — 划线浮动工具栏: 选区监听 Hook (`use-text-selection.ts`)、工具栏组件（翻译 + 朗读 + 收藏）、Shadow DOM 挂载
+- **`src/entrypoints/selection.content/`** — 划线工具栏的 content script：按 `config.selection` 的规则决定要不要挂载工具栏（见下面 Notes）
+- **`src/utils/selection-rules.ts`** — 划线工具栏的站点规则：域名归一化 + 匹配（`normalizeDomainRule` / `matchesDomainRule` / `shouldShowSelectionToolbar`）
+- **`src/hooks/use-speech-playback.ts`** — 朗读播放 hook（Web Audio 播放 background 返回的 base64 音频），划线工具栏和闪卡页共用
+- **`src/utils/message-retry.ts`** — 扩展消息重试：MV3 端口竞态重试一次 + 失效上下文探测（`isExtensionContextInvalidated`），划线工具栏和闪卡页共用
+- **`src/utils/guess-speech-lang.ts`** — 选中文字的语言猜测（划线用；闪卡页有卡片自带的语言时不需要猜）
 - **`src/entrypoints/background/selection-translate.ts`** — 选中文本翻译处理器（单条翻译，不走批处理队列）
 - **`src/entrypoints/background/vocabulary-handlers.ts`** — 生词本 CRUD + 闪卡会话消息处理器
 - **`src/entrypoints/background/speech-handlers.ts`** — 发音消息处理器：`synthesizeSpeechAudio`（悬浮工具栏要的 base64 文本）。见下面 Notes 的说明
 - **`src/utils/speech.ts`** — 朗读核心：Google Translate TTS 端点的 URL 构造、语言映射、音频缓存、base64 编码
 - **`src/utils/vocabulary/definition-lines.ts`** — 词典文本解析：把多行释义拆成「音标行 + 释义行」，闪卡页用
-- **`src/entrypoints/options/pages/vocabulary/`** — 生词本管理页: 搜索、排序、分页、星级修改、删除
-- **`src/entrypoints/options/pages/flashcards/`** — 闪卡复习页: 正面单词 → 翻转显示译文 → 1-5星评分 → 完成统计
+- **`src/entrypoints/options/pages/vocabulary/`** — 生词本管理页: 搜索、排序、分页、星级修改、删除；本地词与欧路词合并展示，可按来源筛选
+- **`src/entrypoints/options/pages/flashcards/`** — 闪卡复习页: 正面单词 → 翻转显示译文 → 1-5星评分 → 完成统计；卡片上有「朗读单词」按钮（正面、背面都有）
+- **`src/utils/vocabulary/eudic-api.ts`** — 欧路生词本的后端转发客户端（token 留在后端，扩展不持有）
+- **`src/entrypoints/background/eudic-handlers.ts`** — 欧路配置/生词本列表/验证/同步的消息处理器
+- **`src/entrypoints/options/pages/general/eudic-service.tsx`** — 欧路接入设置卡片（启用、token 来源、生词本选择、立即同步）
 
 ## Conventions
 
@@ -71,8 +79,10 @@
 - **划线翻译（流式）**: 选区监听 (`useTextSelection` Hook) → 单词先 `sendMessage("translateSelectedTextStructured")` 查本地词典，miss 或多词才走 LLM：`requestSelectionTranslateStream()`（`selection-toolbar/selection-translate-stream.ts`）开一个 `runtime.connect` 端口 → background `setupSelectionTranslateStreamHandler()` 用 `streamText` 边生成边 `port.postMessage({type:"delta"})`，收尾发 `{type:"done", text}` 并 `disconnect()`（端口不关会一直吊着 service worker）。**不走 `sendMessage`**：一请求一响应的通道逼着整段生成完才能显示，而那正是用户抱怨的转圈等待；端口还顺便在流式期间保持 SW 不睡。`done` 里的 text 才是权威全文（已 trim，也就是进生词本的那份），delta 只负责让用户先看着。思维链内联在正文里的模型由 `createThinkTagFilter`（`utils/host/translate/api/think-tag.ts`）按开头几个字符判定、拦在闭合的 think 标签之前，语义跟非流式那条 `THINK_TAG_RE` 保持一致
 - **划线翻译（已删掉的缓冲通道）**: 曾经还有一条 `sendMessage("translateSelectedText")` → `aiTranslate()` 的一次性通道，流式上线后它没有任何调用方，连消息协议条目一起删了。别再加回来——同一个功能留两条看得见的路，下一个人只会猜哪条是活的
 - **划线翻译的两个位置分工**: 结果卡片默认 `position: fixed` 钉在视口右侧居中（`right:16px; top:50%`），拖动手柄可改，一次新的翻译会重置回默认位；悬浮胶囊（翻译/朗读/收藏）继续贴住划线，滚动页面时跟着文字走。**胶囊和卡片都在 `toolbarRef` 这同一个 wrapper 里**——选区钩子把 wrapper 当成「内部」，卡片一旦被搬出去，滚动结果卡片就会被判成「点了外部」，`hideToolbar()` 清掉 `lastRangeRef`，胶囊从此不再跟随
-- **生词本收藏**: `sendMessage("addVocabularyWord")` → background 写入 Dexie `vocabularyWords` 表（同词+同URL去重），默认 `star=3`
+- **生词本收藏**: `sendMessage("addVocabularyWord")` → background 调后端 `POST /api/vocabulary` 写进**后端**的 `vocabulary_words` 表（扩展里那个 Dexie `vocabularyWords` 表在迁移到后端时已清空，是遗留物）
+- **生词本与欧路（Eudic）合并**: 生词本的真实存储在**后端** `D:\myworkspace\mdx`（`user.db` 的 `vocabulary_words` 表），扩展只通过 `/api/vocabulary` 读写；欧路那侧由**后端**代理 `api.frdic.com`（`mdx/app/eudic.py`），扩展不持有 NIS token。token 从后端进程的环境变量 `EUDIT_API_KEY` 读（设置页的备用 token 排第二）。欧路词以 `source='eudic'` 落进同一张表，所以翻页/搜索/排序天然统一，艾宾浩斯队列也自动覆盖。**别把欧路调用搬进扩展**：那会让分页/排序要在前端做双源归并，还会让复习队列漏掉欧路词
 - **闪卡复习**: `sendMessage("getFlashcardSession")` → weighted random 抽取 10 个单词（低星高权重），`markWordReviewed` 更新星级和复习次数
+- **闪卡页的「朗读单词」按钮**: 卡片正面、背面各一个，朗读的是**单词本身**（不是释义）。走 `useSpeechPlayback()`（`src/hooks/use-speech-playback.ts`）→ background `synthesizeSpeechAudio` → Web Audio 播放。语言优先用卡片自带的 `sourceLanguage`（ISO 639-3），没有才按脚本猜（`guess-speech-lang.ts`）。按钮在卡片内部，所以 `onClick` 必须 `stopPropagation()`——否则点朗读会顺手把卡片翻面。翻卡/换卡/结束本轮时要把上一个词的声音停掉
 - **主动推送复习 (Ebbinghaus) 已迁到后端**: 复习提醒整套逻辑（艾宾浩斯阶梯、免打扰时段、每日配额、Windows 通知、复习卡片）现在在 `D:\myworkspace\mdx`（FastAPI 后端，入口 `app/review/`），扩展侧只保留生词本与闪卡。闪卡评分会调后端 `POST /api/vocabulary/{id}/review` 累加 `review_count`、写 `last_reviewed_at`——后端正是靠这个字段挑出「复习过一次」的词进入艾宾浩斯队列。**别把提醒逻辑搬回扩展**：`notifications` 权限已经移除，`browser.alarms` 只剩下 db-cleanup 在用
 - **WXT storage key 必须带区域前缀** (`local:` / `session:`)，裸 key 会被 `resolveKey` 当成非法 area 抛错
 - **发音走 Google Translate 的 TTS 端点** (`translate.google.com/translate_tts`, `client=gtx`)，请求放在 background 里做并缓存成 base64 返回。不要退回 `speechSynthesis`——它静默依赖系统已安装的英语语音包，纯净的 Windows 上没有，按钮点了等于没点。**微软那条走不通**：Edge readaloud 端点会拒绝所有缺少 `Sec-MS-GEC` 令牌的请求，而该令牌由 Windows machine id 推导，属于反自动化控制而非接口怪癖，别去绕
@@ -95,3 +105,11 @@
 - **Edge 桌面应用（PWA 独立窗口）和其它标签页对 content script 一视同仁**: 从快捷方式启动的 PWA 窗口是全新页面加载，content script 注入时上下文健康，所以它"看起来正常"；而排查期间被反复 reload 扩展的老标签页脚本全部失效。别被"PWA 能用"误导——那通常只证明它是刚启动的。真正判断标准： reload 扩展后**每一个**开着的页面（含 PWA 窗口，Ctrl+R 或从快捷方式重启）都要刷新
 - **胶囊跟着划线走，靠的是「滚动时重新量一次」而不是跟着滚动条平移**: `useTextSelection` 只在**选取那一刻**调一次 `range.getBoundingClientRect()`（viewport 坐标），所以滚动后必须重新量才追得上文字。三个坑：(1) 滚动监听必须 `capture: true`——`overflow:auto` 容器里的滚动事件根本不冒泡到 `window`，而页面里这种东西一片一片的；(2) 每个滚动事件都要付钱，所以用 rAF 合并成一帧一次，且 `lastRangeRef == null`（没选区/已关闭）时直接 return；(3) 点击 Shadow DOM 里的工具栏会清掉文档选区，所以钩子额外存了一份 `lastRangeRef`（cloneRange），滚动时「有活的选区就读活的，没有就读存的那份」——少了这一份，点完「翻译」再滚动，胶囊就钉死在原地不动了
 - **wrapper 自身不能带 transform，否则结果卡片会从视口右侧被拽回划线旁边**: `position: fixed` 的子元素只在**祖先没有 transform/filter/will-change** 时才相对视口定位。承载胶囊的那个 wrapper 一旦带上 `translate(-50%,-100%)` 就成了 containing block，卡片那个 `position: fixed; right:16px; top:50%` 立刻变成相对 wrapper 的坐标，被死死按在划线下方。所以居中用的 transform 搬到了胶囊自己身上，wrapper 只留 `position/top/left/zIndex/pointer-events`。测试里直接断言 `wrapper.style.transform === ""`，这个回归没有别的前兆
+- **划线工具栏的站点规则（`config.selection`）**: 规则存的是用户输入的域名，一条规则同时覆盖该域名**及其所有子域名**（`example.com` 也覆盖 `www.example.com`，跟 iframe 注入的 `matchDomainPattern` 同一套语义）；`notexample.com` 不被 `example.com` 覆盖。输入先过 `normalizeDomainRule`（去协议/路径/端口/通配前缀）再存，content script 用 `shouldShowSelectionToolbar` 决定挂不挂工具栏，并用 `storage.watch` 响应选项页里改的规则——改完不用刷新页面。**新加的配置段必须带 `.default()`**：`configSchema.safeParse` 失败会让 `getLocalConfig` 整份退回 `DEFAULT_CONFIG`，等于把用户其它设置全清了
+- **欧路 OpenAPI 的写入语义是实测出来的，文档没写**: `POST /studylist/word` 对**已收藏**的词也是 upsert（能改星级），所以写回星级只用它一个接口就够了——**别碰 `POST /studylist/words`**，那个会把词**追加**进请求里指定的 `category_id`，是个副作用。另外省略 `context_line` 时原值保留、传空会清掉语境，所以改星级时不要带这个参数；任何写操作都会刷新 `add_time`，所以同步时绝不能覆盖已有行的 `created_at`（否则「按添加时间排序」会被写回打乱）。欧路返回的 `exp` 和 `context_line` 里带 HTML（`<br>` / `<b>`），必须清洗后再存，否则闪卡背面显示原始标签
+- **`setx` 写的环境变量只对新进程生效**: 用户用 `setx EUDIT_API_KEY ...` 设了欧路 token，但**已经跑着的后端进程读不到**（进程启动时就把环境块拷走了）。改了环境变量必须重启后端（`script/stop_server.ps1` + `run_server.bat`），否则设置页里显示「未配置」而用户明明设了
+- **欧路星级冲突用 `review_count` 裁决，不要盲写**: 欧路 App 里的星级可能比用户打的分旧。同步时的规则是「本地 `review_count = 0`（用户还没评过分）才采用欧路星级，`> 0` 就以本地为准」——用户的评分是主动行为，比远端状态更近。代价是**在欧路 App 里手动改星级不会回流到扩展**（欧路没给 `updated_at`），回流会造成两边乒乓
+- **FastAPI 的 `response_model` 会把没声明的字段悄悄丢掉**: 写操作的响应里想带回 `eudic_sync`，光 `return {**record, "eudic_sync": ...}` 是不够的——`response_model` 里没这个字段，pydantic 会在序列化时把它裁掉，前端收到的是 `null`/缺失，还以为「没同步」和「同步成功」长得一样。要新加响应字段，先把它加进对应的 response model
+- **同一个网址在浏览器里好使、在 Python 里却抽风——先怀疑 TLS 版本，不是网络**: 欧路接口（`api.frdic.com`）在这条链路上，**OpenSSL 的 TLS 1.3 ClientHello 会被中间设备掐断**，握手直接报 `UNEXPECTED_EOF_WHILE_READING`。实测同一个请求：允许 TLS 1.3 时成功率 30%，把上限压到 **TLS 1.2** 之后 100%。.NET（浏览器、PowerShell、curl）不受影响，因为它们的 ClientHello 长得不一样——所以「浏览器里好好的」完全不能证明网络没问题。`mdx/app/eudic.py` 里 `_ssl_context()` 就是干这个的（`EUDIC_TLS_MAX=1.3` 可以放开）。**排查手法**：同一个 URL 分别用 Python 和 PowerShell 各打 20 次，成功率一对比就知道是 TLS 栈还是网络路由
+- **httpx 的 `trust_env=True` 在你这台机器上是坏的**: 它解析 `NO_PROXY` 时碰到 `[::1]` 这种带方括号的 IPv6 会抛 `InvalidURL: Invalid port: ':1]'`。所以 `mdx/app/eudic.py` 自己从环境变量里取代理 URL、直接塞给 httpx 的 `proxy=` 参数，绕开那个坑（`trust_env` 保持 `False`）
+- **传输层错误必须归一化成自己的异常类型**: `httpx.ConnectError` 之类直接穿到 FastAPI 就是裸的 `500 Internal Server Error`（`text/plain`，连原因都没有），用户只能看着一个「失败」。`mdx/app/eudic.py` 把它们统一成 `EudicNetworkError`（`EudicError` 的子类），路由层转成 502 + 中文原因；**只重试传输层错误**（连接被掐断、超时），HTTP 层的 4xx/5xx 是欧路明确拒绝，重试只是浪费时间

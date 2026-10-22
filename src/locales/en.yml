@@ -141,6 +141,21 @@ options:
       system: System
       light: Light
       dark: Dark
+    selection:
+      title: Selection Toolbar
+      description: The floating toolbar that appears when you select text on a page
+      enable:
+        title: Enable the selection toolbar
+        description: When off, the toolbar never appears on any page
+      rules:
+        title: Excluded sites
+        description: The toolbar will not appear on these sites. A rule covers the domain and all its subdomains, e.g. example.com also covers www.example.com
+        add: Add
+        remove: Remove
+        empty: No site is excluded yet
+        invalid: Please enter a valid domain, e.g. example.com
+        duplicate: This site is already excluded
+        added: Site excluded
     backend:
       title: Backend Service
       description: Address of the companion backend that powers word lookup and the vocabulary book. Leave empty to use the default.
@@ -149,6 +164,42 @@ options:
       saved: Backend address updated
       reset: Backend address reset to default
       error: Please enter a valid URL, e.g. http://127.0.0.1:8000
+    eudic:
+      title: Eudic Vocabulary Book
+      description: Merge the Eudic vocabulary book into the local one so flashcards draw from both. The backend reads the Eudic token from the EUDIT_API_KEY environment variable — it never reaches the browser.
+      loading: Loading...
+      enable:
+        title: Enable Eudic sync
+      token:
+        title: Access token
+        env: From the EUDIT_API_KEY environment variable
+        settings: From the settings page
+        none: Not configured
+        hint: Set a fallback token here when the environment variable does not reach the backend.
+        placeholder: NIS xxxxx
+        save: Save token
+      tokenSaved: Fallback token saved
+      category:
+        title: Book to sync
+        empty: Not selected yet
+      language:
+        readonly: The Eudic interface language is fixed to $1
+      syncNewWords:
+        title: Push new words to Eudic
+        description: Words collected from the web also go into the Eudic book, and later ratings and deletions sync both ways.
+      verify: Verify connection
+      verifying: Verifying...
+      verified: Eudic connection is fine
+      verifyFailed: Could not verify the Eudic connection
+      sync: Sync now
+      syncing: Syncing...
+      synced: "Fetched $3 words ($1 new, $2 updated)"
+      syncFailed: Failed to sync the Eudic vocabulary book
+      lastSync: "Last sync: $1"
+      never: never
+      categoriesFailed: Failed to list the Eudic vocabulary books
+      configFailed: Failed to read the Eudic configuration
+      saveFailed: Failed to save the Eudic configuration
     featureProviders:
       title: Feature Providers
       description: Choose which provider to use for each feature

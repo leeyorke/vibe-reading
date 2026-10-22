@@ -3,7 +3,7 @@ import type { SelectionTranslateStreamMessage, SelectionTranslateStreamRequest }
 import { browser } from "#imports"
 import { SELECTION_TRANSLATE_STREAM_PORT } from "@/types/selection-translate-stream"
 import { logger } from "@/utils/logger"
-import { EXTENSION_STALE_MESSAGE, isExtensionContextInvalidated } from "./message-retry"
+import { EXTENSION_STALE_MESSAGE, isExtensionContextInvalidated } from "@/utils/message-retry"
 
 export interface SelectionTranslateStreamHandlers {
   /** Called with every user-visible slice, in order, while the answer streams. */

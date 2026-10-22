@@ -18,8 +18,8 @@ import {
 export function setupVocabularyMessageHandlers() {
   onMessage("addVocabularyWord", async (message) => {
     try {
-      const id = await apiAddWord(message.data as AddVocabularyWordPayload)
-      return id
+      const result = await apiAddWord(message.data as AddVocabularyWordPayload)
+      return result
     }
     catch (error) {
       logger.error("[Vocabulary] addVocabularyWord failed:", error)
@@ -39,7 +39,7 @@ export function setupVocabularyMessageHandlers() {
 
   onMessage("updateVocabularyWord", async (message) => {
     try {
-      await apiUpdateWord(message.data as UpdateVocabularyWordPayload)
+      return await apiUpdateWord(message.data as UpdateVocabularyWordPayload)
     }
     catch (error) {
       logger.error("[Vocabulary] updateVocabularyWord failed:", error)
@@ -49,7 +49,7 @@ export function setupVocabularyMessageHandlers() {
 
   onMessage("deleteVocabularyWord", async (message) => {
     try {
-      await apiDeleteWord((message.data as { id: string }).id)
+      return await apiDeleteWord((message.data as { id: string }).id)
     }
     catch (error) {
       logger.error("[Vocabulary] deleteVocabularyWord failed:", error)
@@ -71,7 +71,8 @@ export function setupVocabularyMessageHandlers() {
   onMessage("markWordReviewed", async (message) => {
     try {
       const { wordId, star } = message.data as { wordId: string, star: 1 | 2 | 3 | 4 | 5 }
-      await apiMarkWordReviewed(wordId, star)
+      const result = await apiMarkWordReviewed(wordId, star)
+      return result
     }
     catch (error) {
       logger.error("[Vocabulary] markWordReviewed failed:", error)

@@ -1,8 +1,11 @@
 import type {
   AddVocabularyWordPayload,
+  AddVocabularyWordResult,
   UpdateVocabularyWordPayload,
   VocabularyQuery,
+  VocabularySourceCounts,
   VocabularyWord,
+  VocabularyWriteResult,
 } from "@/types/vocabulary"
 import { getBackendBaseUrl } from "@/utils/config/backend"
 import { logger } from "@/utils/logger"
@@ -21,6 +24,8 @@ interface VocabularyWordResponse {
   last_reviewed_at?: number
   review_count: number
   note?: string
+  source?: "local" | "eudic"
+  phonetic?: string
 }
 
 /** Backend list response shape */
@@ -29,6 +34,13 @@ interface VocabularyListResponse {
   total: number
   limit: number
   offset: number
+  /** How many words each source holds — not affected by the current filter */
+  by_source?: Partial<VocabularySourceCounts>
+}
+
+/** Backend write response shape */
+interface VocabularyWriteResponse {
+  eudic_sync?: { ok: boolean, error?: string }
 }
 
 /** Convert backend snake_case to frontend camelCase */
@@ -46,6 +58,8 @@ function toVocabularyWord(raw: VocabularyWordResponse): VocabularyWord {
     lastReviewedAt: raw.last_reviewed_at,
     reviewCount: raw.review_count,
     note: raw.note,
+    source: raw.source,
+    phonetic: raw.phonetic,
   }
 }
 
@@ -73,12 +87,24 @@ function toUpdatePayload(updates: UpdateVocabularyWordPayload["updates"]): Recor
   return result
 }
 
+/** Pick the Eudic sync status out of a backend write response */
+function toWriteResult(raw: VocabularyWriteResponse | null): VocabularyWriteResult {
+  if (!raw?.eudic_sync)
+    return {}
+  return {
+    eudicSync: {
+      ok: raw.eudic_sync.ok,
+      ...(raw.eudic_sync.error != null && { error: raw.eudic_sync.error }),
+    },
+  }
+}
+
 /**
  * Add a new vocabulary word via backend API.
  * Deduplication is handled by the backend.
  * Returns the word's id.
  */
-export async function apiAddWord(data: AddVocabularyWordPayload): Promise<string> {
+export async function apiAddWord(data: AddVocabularyWordPayload): Promise<AddVocabularyWordResult> {
   const baseUrl = await getBackendBaseUrl()
   const res = await fetch(`${baseUrl}/api/vocabulary`, {
     method: "POST",
@@ -90,15 +116,22 @@ export async function apiAddWord(data: AddVocabularyWordPayload): Promise<string
     throw new Error(`[Vocabulary] Add word failed: HTTP ${res.status}`)
   }
 
-  const raw: VocabularyWordResponse = await res.json()
+  const raw: VocabularyWordResponse & VocabularyWriteResponse = await res.json()
   logger.info("[Vocabulary] Added word via API:", raw.word)
-  return raw.id
+  return { id: raw.id, ...toWriteResult(raw) }
 }
 
 /**
  * List vocabulary words with pagination, sorting, and search via backend API.
+ *
+ * The result also carries the per-source counts, so the source filter can
+ * say how many words each book holds without another round trip.
  */
-export async function apiGetWords(data: VocabularyQuery): Promise<{ words: VocabularyWord[], total: number }> {
+export async function apiGetWords(data: VocabularyQuery): Promise<{
+  words: VocabularyWord[]
+  total: number
+  bySource: VocabularySourceCounts
+}> {
   const baseUrl = await getBackendBaseUrl()
   const params = new URLSearchParams({
     limit: String(data.limit ?? 50),
@@ -108,6 +141,9 @@ export async function apiGetWords(data: VocabularyQuery): Promise<{ words: Vocab
   })
   if (data.search) {
     params.set("search", data.search)
+  }
+  if (data.source && data.source !== "all") {
+    params.set("source", data.source)
   }
 
   const res = await fetch(`${baseUrl}/api/vocabulary?${params}`)
@@ -120,13 +156,21 @@ export async function apiGetWords(data: VocabularyQuery): Promise<{ words: Vocab
   return {
     words: raw.records.map(toVocabularyWord),
     total: raw.total,
+    bySource: {
+      all: raw.by_source?.all ?? raw.total,
+      local: raw.by_source?.local ?? 0,
+      eudic: raw.by_source?.eudic ?? 0,
+    },
   }
 }
 
 /**
  * Update a vocabulary word via backend API.
+ *
+ * The backend reports whether the change also reached the Eudic side; a
+ * failed Eudic call never rolls back the local change.
  */
-export async function apiUpdateWord(data: UpdateVocabularyWordPayload): Promise<void> {
+export async function apiUpdateWord(data: UpdateVocabularyWordPayload): Promise<VocabularyWriteResult> {
   const baseUrl = await getBackendBaseUrl()
   const res = await fetch(`${baseUrl}/api/vocabulary/${data.id}`, {
     method: "PATCH",
@@ -138,13 +182,17 @@ export async function apiUpdateWord(data: UpdateVocabularyWordPayload): Promise<
     throw new Error(`[Vocabulary] Update word failed: HTTP ${res.status}`)
   }
 
+  const raw: VocabularyWriteResponse = await res.json().catch(() => null)
   logger.info("[Vocabulary] Updated word via API:", data.id)
+  return toWriteResult(raw)
 }
 
 /**
  * Delete a vocabulary word via backend API.
+ *
+ * Deleting an Eudic-backed word also removes it from the Eudic book.
  */
-export async function apiDeleteWord(id: string): Promise<void> {
+export async function apiDeleteWord(id: string): Promise<VocabularyWriteResult> {
   const baseUrl = await getBackendBaseUrl()
   const res = await fetch(`${baseUrl}/api/vocabulary/${id}`, {
     method: "DELETE",
@@ -154,14 +202,16 @@ export async function apiDeleteWord(id: string): Promise<void> {
     throw new Error(`[Vocabulary] Delete word failed: HTTP ${res.status}`)
   }
 
+  const raw: VocabularyWriteResponse = await res.json().catch(() => null)
   logger.info("[Vocabulary] Deleted word via API:", id)
+  return toWriteResult(raw)
 }
 
 /**
  * Mark a word as reviewed with a new star rating via backend API.
  * Sends PATCH to update star, then POST to increment review count.
  */
-export async function apiMarkWordReviewed(wordId: string, star: 1 | 2 | 3 | 4 | 5): Promise<void> {
+export async function apiMarkWordReviewed(wordId: string, star: 1 | 2 | 3 | 4 | 5): Promise<VocabularyWriteResult> {
   const baseUrl = await getBackendBaseUrl()
   // Update star rating
   const patchRes = await fetch(`${baseUrl}/api/vocabulary/${wordId}`, {
@@ -174,6 +224,8 @@ export async function apiMarkWordReviewed(wordId: string, star: 1 | 2 | 3 | 4 | 
     throw new Error(`[Vocabulary] Update star failed: HTTP ${patchRes.status}`)
   }
 
+  const patchRaw: VocabularyWriteResponse = await patchRes.json().catch(() => null)
+
   // Increment review count
   const reviewRes = await fetch(`${baseUrl}/api/vocabulary/${wordId}/review`, {
     method: "POST",
@@ -184,15 +236,25 @@ export async function apiMarkWordReviewed(wordId: string, star: 1 | 2 | 3 | 4 | 
   }
 
   logger.info("[Vocabulary] Marked word reviewed via API:", wordId)
+  return toWriteResult(patchRaw)
 }
+
+/**
+ * How many words the flashcard session draws from.
+ *
+ * The session picks its cards out of the words with the lowest rating, so
+ * the pool has to be big enough to reach past a pile of hard words — the
+ * Eudic book alone adds hundreds.
+ */
+const FLASHCARD_POOL_SIZE = 500
 
 /**
  * Get all vocabulary words for flashcard session.
  * Fetches from backend, then does weighted random selection on client side.
  */
 export async function apiGetFlashcardSession(count: number): Promise<VocabularyWord[]> {
-  // Fetch all words (up to a reasonable limit for flashcard selection)
-  const { words } = await apiGetWords({ limit: 100, offset: 0, sortBy: "star", sortOrder: "asc" })
+  // Fetch the pool (up to a reasonable limit for flashcard selection)
+  const { words } = await apiGetWords({ limit: FLASHCARD_POOL_SIZE, offset: 0, sortBy: "star", sortOrder: "asc" })
 
   if (words.length === 0) {
     return []

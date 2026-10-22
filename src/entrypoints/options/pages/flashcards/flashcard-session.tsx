@@ -1,7 +1,10 @@
+import type { SpeechPlaybackState } from "@/hooks/use-speech-playback"
 import type { VocabularyWord } from "@/types/vocabulary"
 import { Icon } from "@iconify/react"
-import { useCallback, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
+import { toast } from "sonner"
 import { Button } from "@/components/ui/base-ui/button"
+import { useSpeechPlayback } from "@/hooks/use-speech-playback"
 import { sendMessage } from "@/utils/message"
 import { cn } from "@/utils/styles/utils"
 import { parseCardDefinitionLines, parsePhoneticLine, withDefinitionLineKeys } from "@/utils/vocabulary/definition-lines"
@@ -16,12 +19,93 @@ interface ReviewStat {
   newStar: number
 }
 
-function FlashcardDefinition({ word, translation, contextText }: { word: string, translation: string, contextText?: string }) {
+/** What a speaker button needs to know about the voice it shares. */
+interface SpeechControl {
+  state: SpeechPlaybackState
+  /** The utterance being spoken, so a button knows whether it is the one talking. */
+  speakingText: string | null
+  onSpeak: (text: string, sourceLanguage?: string) => void
+}
+
+/**
+ * The read-aloud button of a card.
+ *
+ * It pronounces the word itself — the thing the learner is being asked to
+ * recall — and it works on both faces of the card, so the pronunciation is
+ * one click away while the meaning is on screen.
+ */
+function SpeechButton({
+  text,
+  sourceLanguage,
+  title,
+  control,
+}: {
+  text: string
+  sourceLanguage?: string
+  title: string
+  control: SpeechControl
+}) {
+  const { state, speakingText, onSpeak } = control
+  const isMine = speakingText === text
+  const isPlaying = isMine && state === "playing"
+  const isLoading = isMine && state === "loading"
+  const label = isPlaying ? "停止朗读" : title
+
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon-sm"
+      className="text-muted-foreground hover:text-foreground"
+      title={label}
+      aria-label={label}
+      onClick={(event) => {
+        // The whole card flips on click, so the button has to keep its own
+        // click to itself.
+        event.stopPropagation()
+        onSpeak(text, sourceLanguage)
+      }}
+    >
+      <Icon
+        icon={isPlaying ? "tabler:player-stop-filled" : isLoading ? "tabler:loader-2" : "tabler:volume"}
+        className={cn("size-4", isLoading && "animate-spin")}
+      />
+    </Button>
+  )
+}
+
+function FlashcardDefinition({
+  word,
+  translation,
+  contextText,
+  sourceLanguage,
+  phonetic,
+  speech,
+}: {
+  word: string
+  translation: string
+  contextText?: string
+  sourceLanguage?: string
+  phonetic?: string
+  speech: SpeechControl
+}) {
   const lines = withDefinitionLineKeys(parseCardDefinitionLines(translation, word))
 
   return (
     <div className="w-full min-w-0 text-left">
-      <h3 className="mb-3 text-xl font-semibold tracking-tight">{word}</h3>
+      <div className="mb-3 flex items-center gap-1">
+        <h3 className="text-xl font-semibold tracking-tight">{word}</h3>
+        <SpeechButton
+          text={word}
+          sourceLanguage={sourceLanguage}
+          title="朗读单词"
+          control={speech}
+        />
+      </div>
+
+      {phonetic && (
+        <p className="mb-3 font-serif text-sm text-muted-foreground">{phonetic}</p>
+      )}
 
       <div className="space-y-1.5 text-sm leading-6">
         {lines.length > 0
@@ -81,8 +165,28 @@ export function FlashcardsPage() {
   const [flipped, setFlipped] = useState(false)
   const [stats, setStats] = useState<ReviewStat[]>([])
   const [loading, setLoading] = useState(false)
+  const {
+    state: speechState,
+    speakingText,
+    speak: speakAudio,
+    stop: stopSpeaking,
+  } = useSpeechPlayback()
 
   const currentCard = cards[currentIndex]
+
+  // A new card is a new word: the voice of the old one has to give way. The
+  // same goes for the end of the session, where the cards are gone.
+  useEffect(() => {
+    stopSpeaking()
+  }, [currentIndex, phase, stopSpeaking])
+
+  const speech: SpeechControl = {
+    state: speechState,
+    speakingText,
+    onSpeak: (text, sourceLanguage) => {
+      void speakAudio(text, { sourceLanguage })
+    },
+  }
 
   const startSession = useCallback(async () => {
     setLoading(true)
@@ -111,7 +215,12 @@ export function FlashcardsPage() {
       return
 
     try {
-      await sendMessage("markWordReviewed", { wordId: currentCard.id, star })
+      const result = await sendMessage("markWordReviewed", { wordId: currentCard.id, star })
+      // The rating is saved locally either way — but when the word came from
+      // Eudic, a failed write-back means the two sides now disagree.
+      if (result?.eudicSync && !result.eudicSync.ok) {
+        toast.warning(`评分已保存，但同步到欧路失败：${result.eudicSync.error ?? "未知错误"}`)
+      }
       // Record stat
       setStats(prev => [...prev, {
         word: currentCard,
@@ -185,10 +294,21 @@ export function FlashcardsPage() {
                     word={currentCard.word}
                     translation={currentCard.translation}
                     contextText={currentCard.contextText}
+                    sourceLanguage={currentCard.sourceLanguage}
+                    phonetic={currentCard.phonetic}
+                    speech={speech}
                   />
                 )
               : (
-                  <span className="text-2xl font-bold">{currentCard.word}</span>
+                  <div className="flex items-center gap-1">
+                    <span className="text-2xl font-bold">{currentCard.word}</span>
+                    <SpeechButton
+                      text={currentCard.word}
+                      sourceLanguage={currentCard.sourceLanguage}
+                      title="朗读单词"
+                      control={speech}
+                    />
+                  </div>
                 )}
           </div>
 

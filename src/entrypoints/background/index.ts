@@ -5,6 +5,7 @@ import { onMessage } from "@/utils/message"
 import { openOptionsPage } from "@/utils/navigation"
 import { ensureInitializedConfig } from "./config"
 import { cleanupAllSummaryCache, cleanupAllTranslationCache, setUpDatabaseCleanup } from "./db-cleanup"
+import { setupEudicMessageHandlers } from "./eudic-handlers"
 import { setupIframeInjection } from "./iframe-injection"
 import { setupLLMGenerateTextMessageHandlers } from "./llm-generate-text"
 import { proxyFetch } from "./proxy-fetch"
@@ -57,6 +58,9 @@ export default defineBackground({
 
     // Handle vocabulary and flashcard message requests
     setupVocabularyMessageHandlers()
+
+    // Eudic vocabulary book (the token lives in the companion backend)
+    setupEudicMessageHandlers()
 
     // Pronunciation for the selection toolbar
     setupSpeechMessageHandlers()

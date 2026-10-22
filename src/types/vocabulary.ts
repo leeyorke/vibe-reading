@@ -23,6 +23,42 @@ export interface VocabularyWord {
   reviewCount: number
   /** Optional user note */
   note?: string
+  /**
+   * Where the word came from: `local` = collected in the extension,
+   * `eudic` = synced from the Eudic vocabulary book.
+   */
+  source?: VocabularySource
+  /** Phonetic transcription, as the Eudic side spells it (e.g. `/ˈæksən/`) */
+  phonetic?: string
+}
+
+/** Which vocabulary book a word lives in */
+export type VocabularySource = "local" | "eudic"
+
+/**
+ * Whether a write also reached the Eudic side.
+ *
+ * The backend reports it separately: a failed Eudic call never rolls back
+ * the local change, so the UI has to say so out loud instead of pretending
+ * everything went fine.
+ */
+export interface EudicSyncStatus {
+  ok: boolean
+  error?: string
+}
+
+/** Result of adding a word */
+export interface AddVocabularyWordResult {
+  /** The new word's id */
+  id: string
+  /** Present when the write touched the Eudic side */
+  eudicSync?: EudicSyncStatus
+}
+
+/** Result of updating or deleting a word */
+export interface VocabularyWriteResult {
+  /** Present when the write touched the Eudic side */
+  eudicSync?: EudicSyncStatus
 }
 
 /** Payload for adding a new vocabulary word */
@@ -48,6 +84,15 @@ export interface VocabularyQuery {
   sortBy?: "createdAt" | "star" | "word"
   sortOrder?: "asc" | "desc"
   search?: string
+  /** Which book to look in; defaults to every source */
+  source?: VocabularySource | "all"
+}
+
+/** How many words each source holds, for the source filter */
+export interface VocabularySourceCounts {
+  all: number
+  local: number
+  eudic: number
 }
 
 /** Response for a flashcard session */

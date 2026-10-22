@@ -5,6 +5,7 @@ import { DEFAULT_BACKEND_BASE_URL } from "@/utils/constants/backend"
 import { FEATURE_PROVIDER_DEFS } from "@/utils/constants/feature-providers"
 import { backendConfigSchema } from "./backend"
 import { providersConfigSchema } from "./provider"
+import { selectionConfigSchema } from "./selection"
 import { translateConfigSchema } from "./translate"
 
 export const uiLocaleSchema = z.enum(["en", "zh-CN"])
@@ -24,6 +25,10 @@ export const configSchema = z.object({
   providersConfig: providersConfigSchema,
   translate: translateConfigSchema,
   backend: backendConfigSchema.default({ baseUrl: DEFAULT_BACKEND_BASE_URL }),
+  // The default keeps configs written before this section existed parseable:
+  // a missing key must not invalidate the whole stored config (that would
+  // silently reset every other setting the user has).
+  selection: selectionConfigSchema.default({ enabled: true, excludedDomains: [] }),
 }).superRefine((data, ctx) => {
   const providerIdsSet = new Set(data.providersConfig.map(p => p.id))
 

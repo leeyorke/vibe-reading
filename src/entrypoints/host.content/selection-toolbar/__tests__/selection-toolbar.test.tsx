@@ -80,7 +80,7 @@ class FakeAudioContext {
 }
 
 const { SelectionToolbar } = await import("../selection-toolbar")
-const { EXTENSION_STALE_MESSAGE } = await import("../message-retry")
+const { EXTENSION_STALE_MESSAGE } = await import("@/utils/message-retry")
 
 function speakButton() {
   return screen.getByTitle("朗读选中的句子或单词")

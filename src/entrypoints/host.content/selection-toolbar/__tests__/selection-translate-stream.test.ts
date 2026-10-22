@@ -79,7 +79,7 @@ vi.mock("wxt/browser", () => ({
   },
 }))
 
-vi.mock("../message-retry", () => ({
+vi.mock("@/utils/message-retry", () => ({
   EXTENSION_STALE_MESSAGE: "扩展已重新加载，请刷新页面后重试",
   isExtensionContextInvalidated: () => extensionContextInvalidatedMock(),
 }))

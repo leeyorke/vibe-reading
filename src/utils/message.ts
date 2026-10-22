@@ -6,12 +6,22 @@ import type {
 import type { Config } from "@/types/config/config"
 import type { ProviderConfig } from "@/types/config/provider"
 import type { BatchQueueConfig, RequestQueueConfig } from "@/types/config/translate"
+import type {
+  EudicCategory,
+  EudicConfig,
+  EudicSyncResult,
+  EudicVerifyResult,
+  UpdateEudicConfigPayload,
+} from "@/types/eudic"
 import type { ProxyRequest, ProxyResponse } from "@/types/proxy-fetch"
 import type {
   AddVocabularyWordPayload,
+  AddVocabularyWordResult,
   UpdateVocabularyWordPayload,
   VocabularyQuery,
+  VocabularySourceCounts,
   VocabularyWord,
+  VocabularyWriteResult,
   WordDefinition,
 } from "@/types/vocabulary"
 import { defineExtensionMessaging } from "@webext-core/messaging"
@@ -49,14 +59,21 @@ interface ProtocolMap {
   }) => Promise<WordDefinition | null>
 
   // --- vocabulary ---
-  addVocabularyWord: (data: AddVocabularyWordPayload) => Promise<string>
-  getVocabularyWords: (data: VocabularyQuery) => Promise<{ words: VocabularyWord[], total: number }>
-  updateVocabularyWord: (data: UpdateVocabularyWordPayload) => Promise<void>
-  deleteVocabularyWord: (data: { id: string }) => Promise<void>
+  addVocabularyWord: (data: AddVocabularyWordPayload) => Promise<AddVocabularyWordResult>
+  getVocabularyWords: (data: VocabularyQuery) => Promise<{ words: VocabularyWord[], total: number, bySource: VocabularySourceCounts }>
+  updateVocabularyWord: (data: UpdateVocabularyWordPayload) => Promise<VocabularyWriteResult>
+  deleteVocabularyWord: (data: { id: string }) => Promise<VocabularyWriteResult>
 
   // --- flashcards ---
   getFlashcardSession: (data: { count?: number }) => Promise<VocabularyWord[]>
-  markWordReviewed: (data: { wordId: string, star: 1 | 2 | 3 | 4 | 5 }) => Promise<void>
+  markWordReviewed: (data: { wordId: string, star: 1 | 2 | 3 | 4 | 5 }) => Promise<VocabularyWriteResult>
+
+  // --- eudic vocabulary book ---
+  getEudicConfig: () => Promise<EudicConfig>
+  updateEudicConfig: (data: UpdateEudicConfigPayload) => Promise<EudicConfig>
+  getEudicCategories: () => Promise<{ categories: EudicCategory[], tokenSource: string }>
+  verifyEudicToken: () => Promise<EudicVerifyResult>
+  syncEudicVocabulary: () => Promise<EudicSyncResult>
 
   /**
    * Fetch pronunciation audio as base64 for Web Audio playback.

@@ -3,12 +3,12 @@ import type { WordDefinition } from "@/types/vocabulary"
 import { Icon } from "@iconify/react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
+import { useSpeechPlayback } from "@/hooks/use-speech-playback"
 import { logger } from "@/utils/logger"
 import { sendMessage } from "@/utils/message"
+import { errorMessage, EXTENSION_STALE_MESSAGE, isExtensionContextInvalidated, withMessageRetry } from "@/utils/message-retry"
 import { MarkdownContent } from "./markdown-content"
-import { errorMessage, EXTENSION_STALE_MESSAGE, isExtensionContextInvalidated, withMessageRetry } from "./message-retry"
 import { requestSelectionTranslateStream } from "./selection-translate-stream"
-import { useSpeechPlayback } from "./use-speech-playback"
 import { useTextSelection } from "./use-text-selection"
 
 interface ToolbarPosition {
@@ -251,14 +251,21 @@ export function SelectionToolbar() {
     setCollectState("collecting")
 
     try {
-      await sendMessage("addVocabularyWord", {
+      const result = await sendMessage("addVocabularyWord", {
         word: wordToSave,
         translation: translationToSave,
         contextUrl: window.location.href,
         contextText: selection.text,
       })
       setCollectState("collected")
-      toast.success("已加入生词本")
+      // The word is in the local book either way. When the Eudic push fails,
+      // say so — otherwise the two books quietly drift apart.
+      if (result?.eudicSync && !result.eudicSync.ok) {
+        toast.warning(`已加入生词本，但同步到欧路失败：${result.eudicSync.error ?? "未知错误"}`)
+      }
+      else {
+        toast.success("已加入生词本")
+      }
 
       // Reset after 2 seconds
       clearTimeout(collectTimerRef.current)

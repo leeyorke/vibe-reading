@@ -141,6 +141,21 @@ options:
       system: 跟随系统
       light: 浅色
       dark: 深色
+    selection:
+      title: 划线工具栏
+      description: 选中网页文字后浮出的工具栏
+      enable:
+        title: 启用划线工具栏
+        description: 关闭后，工具栏不会在任何页面出现
+      rules:
+        title: 排除的网站
+        description: 工具栏不会在这些网站出现。一条规则同时覆盖该域名及其所有子域名，例如 example.com 也覆盖 www.example.com
+        add: 添加
+        remove: 移除
+        empty: 暂未排除任何网站
+        invalid: 请输入有效的域名，例如 example.com
+        duplicate: 该网站已在排除列表中
+        added: 已排除该网站
     backend:
       title: 后端服务
       description: 提供单词查询和生词本功能的后端服务地址。留空则使用默认地址。
@@ -149,6 +164,42 @@ options:
       saved: 后端地址已更新
       reset: 后端地址已重置为默认值
       error: 请输入有效的 URL，例如 http://127.0.0.1:8000
+    eudic:
+      title: 欧路生词本
+      description: 把欧路词典的生词本合并进本地生词本，闪卡会从两个生词本一起抽词。欧路的访问令牌由后端从环境变量 EUDIT_API_KEY 读取，不会进入浏览器。
+      loading: 加载中...
+      enable:
+        title: 启用欧路同步
+      token:
+        title: 访问令牌
+        env: 来自环境变量 EUDIT_API_KEY
+        settings: 来自设置页
+        none: 未配置
+        hint: 环境变量没生效时，可以在这里填一个备用令牌。
+        placeholder: NIS xxxxx
+        save: 保存令牌
+      tokenSaved: 备用令牌已保存
+      category:
+        title: 同步的生词本
+        empty: 尚未选择
+      language:
+        readonly: 欧路接口的语言固定为 $1
+      syncNewWords:
+        title: 新收藏同步到欧路
+        description: 划线收藏的词同时加入欧路生词本，之后的评分与删除也会双向同步。
+      verify: 验证连接
+      verifying: 验证中...
+      verified: 欧路连接正常
+      verifyFailed: 欧路连接验证失败
+      sync: 立即同步
+      syncing: 同步中...
+      synced: 已获取 $3 个单词（新增 $1，更新 $2）
+      syncFailed: 同步欧路生词本失败
+      lastSync: 上次同步：$1
+      never: 从未同步
+      categoriesFailed: 获取欧路生词本失败
+      configFailed: 读取欧路配置失败
+      saveFailed: 保存欧路配置失败
     featureProviders:
       title: 功能提供商
       description: 为每个功能选择使用的提供商

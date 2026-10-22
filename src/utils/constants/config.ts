@@ -56,6 +56,10 @@ export const DEFAULT_CONFIG: Config = {
       customCSS: null,
     },
   },
+  selection: {
+    enabled: true,
+    excludedDomains: [],
+  },
 }
 
 export const PAGE_TRANSLATE_RANGE_ITEMS: Record<
