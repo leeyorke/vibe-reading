@@ -16,22 +16,23 @@
 
 ## Commands
 
-| 命令                        | 说明                               |
-| --------------------------- | ---------------------------------- |
-| `pnpm dev`                  | 启动开发服务器 (热更新, port 3333) |
-| `pnpm build`                | 生产构建 (默认 Chrome)             |
-| `pnpm build:firefox`        | Firefox 构建                       |
-| `pnpm build:edge`           | Edge 构建                          |
-| `pnpm build:analyze`        | 构建并分析 bundle                  |
-| `pnpm test`                 | Vitest 运行全部测试                |
-| `pnpm test:watch`           | Vitest watch 模式                  |
-| `pnpm test:cov`             | 带覆盖率报告                       |
-| `pnpm lint`                 | ESLint 检查                        |
-| `pnpm lint:fix`             | ESLint 自动修复                    |
-| `pnpm type-check`           | `tsc --noEmit` 类型检查            |
-| `pnpm zip`                  | 打包为 .zip (Chrome)               |
-| `pnpm zip:all`              | 打包所有浏览器                     |
-| `pnpm scrape:ai-sdk-models` | 抓取 AI SDK provider 模型列表      |
+| 命令                                        | 说明                                                                 |
+| ------------------------------------------- | -------------------------------------------------------------------- |
+| `pnpm dev`                                  | 启动开发服务器 (热更新, port 3333)                                   |
+| `pnpm build`                                | 生产构建 (默认 Chrome)                                               |
+| `pnpm build:firefox`                        | Firefox 构建                                                         |
+| `pnpm build:edge`                           | Edge 构建                                                            |
+| `pnpm build:analyze`                        | 构建并分析 bundle                                                    |
+| `pnpm test`                                 | Vitest 运行全部测试                                                  |
+| `pnpm test:watch`                           | Vitest watch 模式                                                    |
+| `pnpm test:cov`                             | 带覆盖率报告                                                         |
+| `pnpm lint`                                 | ESLint 检查                                                          |
+| `pnpm lint:fix`                             | ESLint 自动修复                                                      |
+| `pnpm type-check`                           | `tsc --noEmit` 类型检查                                              |
+| `pnpm zip`                                  | 打包为 .zip (Chrome)                                                 |
+| `pnpm zip:all`                              | 打包所有浏览器                                                       |
+| `pnpm release <patch\|minor\|major\|x.y.z>` | 发版：升版本号 + 起 `chore: release` 提交 + 打 tag（见「发版流程」） |
+| `pnpm scrape:ai-sdk-models`                 | 抓取 AI SDK provider 模型列表                                        |
 
 ## Architecture
 
