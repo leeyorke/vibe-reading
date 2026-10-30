@@ -58,6 +58,14 @@ interface ProtocolMap {
     text: string
   }) => Promise<WordDefinition | null>
 
+  /**
+   * Quick machine translation of one selection over Google's free endpoint —
+   * the toolbar's 翻译 button. No provider, no prompt: it has to work on a
+   * fresh install, so the language pair is read from the config in the
+   * background rather than sent by the content script.
+   */
+  quickTranslateSelection: (data: { text: string }) => Promise<string>
+
   // --- vocabulary ---
   addVocabularyWord: (data: AddVocabularyWordPayload) => Promise<AddVocabularyWordResult>
   getVocabularyWords: (data: VocabularyQuery) => Promise<{ words: VocabularyWord[], total: number, bySource: VocabularySourceCounts }>

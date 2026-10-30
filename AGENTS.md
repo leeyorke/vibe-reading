@@ -48,9 +48,10 @@
 - **`src/locales/`** — i18n 翻译文件 (YAML, 9 种语言: en/zh-CN/zh-TW/ja/ko/es/ru/vi/tr)
 - **`src/definitions/index.ts`** — 集中的常量/枚举定义 (语言代码、provider 定义等)
 - **`src/utils/db/`** — IndexedDB (Dexie) 缓存层: 翻译缓存、摘要缓存、生词本词汇表 (`vocabularyWords`)
-- **`src/entrypoints/host.content/selection-toolbar/`** — 划线浮动工具栏: 选区监听 Hook (`use-text-selection.ts`)、工具栏组件（翻译 + 朗读 + 收藏）、Shadow DOM 挂载
+- **`src/entrypoints/host.content/selection-toolbar/`** — 划线浮动工具栏: 选区监听 Hook (`use-text-selection.ts`)、工具栏组件（翻译 + 学习 + 朗读 + 收藏）、Shadow DOM 挂载
 - **`src/entrypoints/selection.content/`** — 划线工具栏的 content script：按 `config.selection` 的规则决定要不要挂载工具栏（见下面 Notes）
 - **`src/utils/selection-rules.ts`** — 划线工具栏的站点规则：域名归一化 + 匹配（`normalizeDomainRule` / `matchesDomainRule` / `shouldShowSelectionToolbar`）
+- **`src/utils/google-translate.ts`** — 划线工具栏「翻译」按钮的 Google 免费快速翻译：端点构造、ISO 639-3 → Google 语言码映射、嵌套数组响应解析、SW 内缓存（跟 `speech.ts` 同一套「非官方端点 + 失败要可见」的纪律）
 - **`src/hooks/use-speech-playback.ts`** — 朗读播放 hook（Web Audio 播放 background 返回的 base64 音频），划线工具栏和闪卡页共用
 - **`src/utils/message-retry.ts`** — 扩展消息重试：MV3 端口竞态重试一次 + 失效上下文探测（`isExtensionContextInvalidated`），划线工具栏和闪卡页共用
 - **`src/utils/guess-speech-lang.ts`** — 选中文字的语言猜测（划线用；闪卡页有卡片自带的语言时不需要猜）
@@ -77,8 +78,9 @@
 - **格式化**: ESLint (antfu config) + Prettier (markdown), 双引号, 无分号, `unused-imports/no-unused-imports: error`
 - **Git**: commitlint (conventional commits) + husky + lint-staged
 - **日志**: `src/utils/logger.ts` — 仅 dev 环境下输出, 生产环境 noop; 使用 `logger.info/warn/error`
-- **划线翻译（流式）**: 选区监听 (`useTextSelection` Hook) → 单词先 `sendMessage("translateSelectedTextStructured")` 查本地词典，miss 或多词才走 LLM：`requestSelectionTranslateStream()`（`selection-toolbar/selection-translate-stream.ts`）开一个 `runtime.connect` 端口 → background `setupSelectionTranslateStreamHandler()` 用 `streamText` 边生成边 `port.postMessage({type:"delta"})`，收尾发 `{type:"done", text}` 并 `disconnect()`（端口不关会一直吊着 service worker）。**不走 `sendMessage`**：一请求一响应的通道逼着整段生成完才能显示，而那正是用户抱怨的转圈等待；端口还顺便在流式期间保持 SW 不睡。`done` 里的 text 才是权威全文（已 trim，也就是进生词本的那份），delta 只负责让用户先看着。思维链内联在正文里的模型由 `createThinkTagFilter`（`utils/host/translate/api/think-tag.ts`）按开头几个字符判定、拦在闭合的 think 标签之前，语义跟非流式那条 `THINK_TAG_RE` 保持一致
+- **划线翻译（流式）**: 「学习」按钮 = 纯 LLM 通道，**不查词典**：`requestSelectionTranslateStream()`（`selection-toolbar/selection-translate-stream.ts`）开一个 `runtime.connect` 端口 → background `setupSelectionTranslateStreamHandler()` 用 `streamText` 边生成边 `port.postMessage({type:"delta"})`，收尾发 `{type:"done", text}` 并 `disconnect()`（端口不关会一直吊着 service worker）。**不走 `sendMessage`**：一请求一响应的通道逼着整段生成完才能显示，而那正是用户抱怨的转圈等待；端口还顺便在流式期间保持 SW 不睡。`done` 里的 text 才是权威全文（已 trim，也就是进生词本的那份），delta 只负责让用户先看着。思维链内联在正文里的模型由 `createThinkTagFilter`（`utils/host/translate/api/think-tag.ts`）按开头几个字符判定、拦在闭合的 think 标签之前，语义跟非流式那条 `THINK_TAG_RE` 保持一致
 - **划线翻译（已删掉的缓冲通道）**: 曾经还有一条 `sendMessage("translateSelectedText")` → `aiTranslate()` 的一次性通道，流式上线后它没有任何调用方，连消息协议条目一起删了。别再加回来——同一个功能留两条看得见的路，下一个人只会猜哪条是活的
+- **划线工具栏的两个按钮走两条完全不同的路**: 「翻译」= 快速通道：单词先 `sendMessage("translateSelectedTextStructured")` 查本地词典（命中直接渲染结构化词卡），miss（`null`）或多词才回落 Google 免费端点（`translate_a/single?client=gtx`，`utils/google-translate.ts`，`sendMessage("quickTranslateSelection")` → background `quickTranslateSelectedText`：不依赖任何 provider，fresh install 就能用，配置没保存过也不报错，语言对退回 `DEFAULT_CONFIG.language`，source 是 `auto` 就交给 Google 自己检测，SW 内有界缓存）。**别把 Google 调用搬进 content script**：跨域 fetch 斗不过页面 CSP，跟朗读按钮一个道理（`host_permissions` 已是 `*://*/*`，background fetch 没有 CORS 问题）。「学习」= 纯 LLM 流式端口，**不查词典**——词典环节整个搬到了「翻译」上，于是两个按钮的答案可以并排比较（词典/机器翻译 vs AI 分析）。两者共用同一个 popover 和 `pendingKind` 状态机——一次只有一个请求在飞，否则两个答案会往同一个 popover 里赛跑；收藏按钮存的是当前屏上那份，所以两个按钮的结果都能直接进生词本。Google 端点返回的是嵌套数组 `[[[译文,原文,…],…]]`，解析失败（含 200 的错误页）必须变成可见的错误文案，不能把 `[object Object]` 渲染进 popover
 - **划线翻译的两个位置分工**: 结果卡片默认 `position: fixed` 钉在视口右侧居中（`right:16px; top:50%`），拖动手柄可改，一次新的翻译会重置回默认位；悬浮胶囊（翻译/朗读/收藏）继续贴住划线，滚动页面时跟着文字走。**胶囊和卡片都在 `toolbarRef` 这同一个 wrapper 里**——选区钩子把 wrapper 当成「内部」，卡片一旦被搬出去，滚动结果卡片就会被判成「点了外部」，`hideToolbar()` 清掉 `lastRangeRef`，胶囊从此不再跟随
 - **生词本收藏**: `sendMessage("addVocabularyWord")` → background 调后端 `POST /api/vocabulary` 写进**后端**的 `vocabulary_words` 表（扩展里那个 Dexie `vocabularyWords` 表在迁移到后端时已清空，是遗留物）
 - **生词本与欧路（Eudic）合并**: 生词本的真实存储在**后端** `D:\myworkspace\mdx`（`user.db` 的 `vocabulary_words` 表），扩展只通过 `/api/vocabulary` 读写；欧路那侧由**后端**代理 `api.frdic.com`（`mdx/app/eudic.py`），扩展不持有 NIS token。token 从后端进程的环境变量 `EUDIT_API_KEY` 读（设置页的备用 token 排第二）。欧路词以 `source='eudic'` 落进同一张表，所以翻页/搜索/排序天然统一，艾宾浩斯队列也自动覆盖。**别把欧路调用搬进扩展**：那会让分页/排序要在前端做双源归并，还会让复习队列漏掉欧路词

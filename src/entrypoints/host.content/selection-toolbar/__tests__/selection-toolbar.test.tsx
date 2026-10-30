@@ -86,8 +86,14 @@ function speakButton() {
   return screen.getByTitle("朗读选中的句子或单词")
 }
 
-function translateButton() {
+/** The quick machine translation (Google, no provider) button. */
+function quickButton() {
   return screen.getByTitle("翻译")
+}
+
+/** The dictionary + AI learning button. */
+function learnButton() {
+  return screen.getByTitle("学习")
 }
 
 const AUDIO_BASE64 = btoa(String.fromCharCode(0xFF, 0xFB, 0x90, 0x00))
@@ -163,10 +169,11 @@ describe("selection toolbar speak button", () => {
     })
   })
 
-  it("still offers translation and collecting next to the new button", () => {
+  it("offers both the quick translation and the learning button", () => {
     render(<SelectionToolbar />)
 
-    expect(screen.getByTitle("翻译")).toBeInTheDocument()
+    expect(quickButton()).toBeInTheDocument()
+    expect(learnButton()).toBeInTheDocument()
     expect(screen.getByTitle("加入生词本")).toBeInTheDocument()
     expect(speakButton()).toBeInTheDocument()
   })
@@ -179,6 +186,7 @@ describe("selection toolbar speak button", () => {
 
     expect(screen.getByTitle(EXTENSION_STALE_MESSAGE)).toBeInTheDocument()
     expect(screen.queryByTitle("翻译")).not.toBeInTheDocument()
+    expect(screen.queryByTitle("学习")).not.toBeInTheDocument()
     expect(screen.queryByTitle("加入生词本")).not.toBeInTheDocument()
   })
 })
@@ -188,7 +196,8 @@ describe("selection toolbar translate button", () => {
     vi.clearAllMocks()
     FakeAudioContext.last = null
     selectionMock.current = { text: "ephemeral", rect: new DOMRect(0, 100, 80, 20), isVisible: true }
-    // A dictionary miss (null) is what routes a single word to the AI path.
+    // The learning button never consults the dictionary, so a null-returning
+    // mock is all it ever needs to see.
     sendMessageMock.mockResolvedValue(null)
     vi.stubGlobal("AudioContext", FakeAudioContext)
   })
@@ -205,7 +214,7 @@ describe("selection toolbar translate button", () => {
     })
 
     render(<SelectionToolbar />)
-    fireEvent.click(translateButton())
+    fireEvent.click(learnButton())
 
     // The answer is on screen before the request has finished, which is the
     // whole point of the stream.
@@ -225,15 +234,15 @@ describe("selection toolbar translate button", () => {
       }))
 
     render(<SelectionToolbar />)
-    fireEvent.click(translateButton())
+    fireEvent.click(learnButton())
 
-    // The toolbar button also says 翻译中..., so scope to the popover's div.
-    expect(await screen.findByText("翻译中...", { selector: "div" })).toBeInTheDocument()
+    // The toolbar button also says 学习分析中..., so scope to the popover's div.
+    expect(await screen.findByText("学习分析中...", { selector: "div" })).toBeInTheDocument()
 
     emitDelta("答案")
 
     await waitFor(() => {
-      expect(screen.queryByText("翻译中...", { selector: "div" })).not.toBeInTheDocument()
+      expect(screen.queryByText("学习分析中...", { selector: "div" })).not.toBeInTheDocument()
     })
     expect(screen.getByText("答案")).toBeInTheDocument()
   })
@@ -243,7 +252,7 @@ describe("selection toolbar translate button", () => {
     selectionMock.current = { text: "  a fleeting moment  ", rect: new DOMRect(0, 100, 80, 20), isVisible: true }
 
     render(<SelectionToolbar />)
-    fireEvent.click(translateButton())
+    fireEvent.click(learnButton())
 
     await waitFor(() => {
       expect(streamMock).toHaveBeenCalledTimes(1)
@@ -256,7 +265,7 @@ describe("selection toolbar translate button", () => {
     selectionMock.current = { text: "a fleeting moment", rect: new DOMRect(0, 100, 80, 20), isVisible: true }
 
     render(<SelectionToolbar />)
-    fireEvent.click(translateButton())
+    fireEvent.click(learnButton())
 
     await waitFor(() => {
       expect(streamMock).toHaveBeenCalledTimes(1)
@@ -264,11 +273,25 @@ describe("selection toolbar translate button", () => {
     expect(sendMessageMock).not.toHaveBeenCalledWith("translateSelectedTextStructured", expect.anything())
   })
 
+  it("goes straight to the stream for a single word too, with no dictionary detour", async () => {
+    streamMock.mockResolvedValue("答案")
+
+    render(<SelectionToolbar />)
+    fireEvent.click(learnButton())
+
+    await waitFor(() => {
+      expect(streamMock).toHaveBeenCalledTimes(1)
+    })
+    // The dictionary lookup moved to the 翻译 button; the learning button is
+    // the AI-only path now.
+    expect(sendMessageMock).not.toHaveBeenCalledWith("translateSelectedTextStructured", expect.anything())
+  })
+
   it("shows the provider's reason when the stream fails", async () => {
     streamMock.mockRejectedValue(new Error("401 Unauthorized"))
 
     render(<SelectionToolbar />)
-    fireEvent.click(translateButton())
+    fireEvent.click(learnButton())
 
     expect(await screen.findByText("翻译失败：401 Unauthorized")).toBeInTheDocument()
   })
@@ -280,7 +303,7 @@ describe("selection toolbar translate button", () => {
     })
 
     render(<SelectionToolbar />)
-    fireEvent.click(translateButton())
+    fireEvent.click(learnButton())
 
     expect(await screen.findByText(/翻译连接中断，请重试/)).toBeInTheDocument()
     // The partial answer is not wiped out by the failure beneath it.
@@ -296,9 +319,9 @@ describe("selection toolbar translate button", () => {
       }))
 
     render(<SelectionToolbar />)
-    fireEvent.click(translateButton())
+    fireEvent.click(learnButton())
 
-    await screen.findByText("翻译中...", { selector: "div" })
+    await screen.findByText("学习分析中...", { selector: "div" })
     expect(screen.getByTitle("加入生词本")).toBeDisabled()
 
     emitDelta("答案")
@@ -321,7 +344,7 @@ describe("selection toolbar translate button", () => {
     })
 
     render(<SelectionToolbar />)
-    fireEvent.click(translateButton())
+    fireEvent.click(learnButton())
 
     await waitFor(() => {
       expect(screen.getByTitle("加入生词本")).toBeEnabled()
@@ -333,6 +356,137 @@ describe("selection toolbar translate button", () => {
       expect(sendMessageMock).toHaveBeenCalledWith("addVocabularyWord", expect.objectContaining({
         word: "ephemeral",
         translation: "答案",
+      }))
+    })
+  })
+})
+
+describe("selection toolbar quick translate button", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    FakeAudioContext.last = null
+    selectionMock.current = { text: "ephemeral", rect: new DOMRect(0, 100, 80, 20), isVisible: true }
+    sendMessageMock.mockResolvedValue(null)
+    vi.stubGlobal("AudioContext", FakeAudioContext)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it("relays the selection to the background and shows the answer", async () => {
+    sendMessageMock.mockImplementation((type: string) =>
+      type === "quickTranslateSelection" ? Promise.resolve("转瞬即逝") : Promise.resolve(null))
+
+    render(<SelectionToolbar />)
+    fireEvent.click(quickButton())
+
+    await waitFor(() => {
+      expect(screen.getByText("转瞬即逝")).toBeInTheDocument()
+    })
+    expect(sendMessageMock).toHaveBeenCalledWith("quickTranslateSelection", { text: "ephemeral" })
+    // A dictionary miss is what routes here, and the AI stream is the other
+    // button's path.
+    expect(streamMock).not.toHaveBeenCalled()
+  })
+
+  it("asks the local dictionary first for a single word", async () => {
+    sendMessageMock.mockImplementation((type: string) => {
+      if (type === "translateSelectedTextStructured") {
+        return Promise.resolve({
+          headword: "ephemeral",
+          pos: "adj.",
+          phoneticUK: "/ɪˈfem(ə)rəl/",
+          senses: [{ number: 1, chineseDefinition: "短暂的" }],
+        })
+      }
+      return Promise.resolve(null)
+    })
+
+    render(<SelectionToolbar />)
+    fireEvent.click(quickButton())
+
+    await waitFor(() => {
+      expect(screen.getByText("短暂的")).toBeInTheDocument()
+    })
+    expect(sendMessageMock).toHaveBeenCalledWith("translateSelectedTextStructured", { text: "ephemeral" })
+    // The dictionary answered, so Google is never asked.
+    expect(sendMessageMock).not.toHaveBeenCalledWith("quickTranslateSelection", expect.anything())
+  })
+
+  it("falls through to Google when the dictionary misses", async () => {
+    sendMessageMock.mockImplementation((type: string) =>
+      type === "quickTranslateSelection" ? Promise.resolve("转瞬即逝") : Promise.resolve(null))
+
+    render(<SelectionToolbar />)
+    fireEvent.click(quickButton())
+
+    await waitFor(() => {
+      expect(screen.getByText("转瞬即逝")).toBeInTheDocument()
+    })
+    expect(sendMessageMock).toHaveBeenCalledWith("translateSelectedTextStructured", { text: "ephemeral" })
+    expect(sendMessageMock).toHaveBeenCalledWith("quickTranslateSelection", { text: "ephemeral" })
+  })
+
+  it("skips the dictionary for a multi-word selection", async () => {
+    sendMessageMock.mockImplementation((type: string) =>
+      type === "quickTranslateSelection" ? Promise.resolve("转瞬即逝") : Promise.resolve(null))
+    selectionMock.current = { text: "a fleeting moment", rect: new DOMRect(0, 100, 80, 20), isVisible: true }
+
+    render(<SelectionToolbar />)
+    fireEvent.click(quickButton())
+
+    await waitFor(() => {
+      expect(screen.getByText("转瞬即逝")).toBeInTheDocument()
+    })
+    expect(sendMessageMock).not.toHaveBeenCalledWith("translateSelectedTextStructured", expect.anything())
+  })
+
+  it("shows the endpoint's reason when the quick translation fails", async () => {
+    sendMessageMock.mockRejectedValue(new Error("Google 翻译接口返回 429"))
+
+    render(<SelectionToolbar />)
+    fireEvent.click(quickButton())
+
+    expect(await screen.findByText("翻译失败：Google 翻译接口返回 429")).toBeInTheDocument()
+  })
+
+  it("keeps the learn button disabled while the quick translation is in flight", async () => {
+    sendMessageMock.mockReturnValue(new Promise(() => {}))
+
+    render(<SelectionToolbar />)
+    fireEvent.click(quickButton())
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /翻译中/ })).toBeDisabled()
+    })
+    expect(learnButton()).toBeDisabled()
+  })
+
+  it("saves the quick answer to the vocabulary book like any other result", async () => {
+    sendMessageMock.mockImplementation((type: string) => {
+      if (type === "quickTranslateSelection") {
+        return Promise.resolve("转瞬即逝")
+      }
+      if (type === "addVocabularyWord") {
+        return Promise.resolve("word-id")
+      }
+      return Promise.resolve(null)
+    })
+
+    render(<SelectionToolbar />)
+    fireEvent.click(quickButton())
+
+    await waitFor(() => {
+      expect(screen.getByTitle("加入生词本")).toBeEnabled()
+    })
+
+    fireEvent.click(screen.getByTitle("加入生词本"))
+
+    await waitFor(() => {
+      expect(sendMessageMock).toHaveBeenCalledWith("addVocabularyWord", expect.objectContaining({
+        word: "ephemeral",
+        translation: "转瞬即逝",
       }))
     })
   })
@@ -366,7 +520,7 @@ describe("selection toolbar result popover placement", () => {
 
   it("bolts the answer to the right-centre of the viewport instead of under the capsule", async () => {
     render(<SelectionToolbar />)
-    fireEvent.click(translateButton())
+    fireEvent.click(learnButton())
 
     await waitFor(() => {
       expect(popover()).toBeInTheDocument()
@@ -382,7 +536,7 @@ describe("selection toolbar result popover placement", () => {
 
   it("keeps the popover inside the toolbar root, so clicks in it are not clicks outside", async () => {
     render(<SelectionToolbar />)
-    fireEvent.click(translateButton())
+    fireEvent.click(learnButton())
 
     await waitFor(() => {
       expect(popover()).toBeInTheDocument()
@@ -391,19 +545,19 @@ describe("selection toolbar result popover placement", () => {
     // The wrapper is what the selection hook treats as "inside". If the popover
     // ever moves out of it, scrolling the result would count as a click outside
     // and strand the capsule.
-    const capsule = screen.getByTitle("翻译").closest(".notranslate") as HTMLElement
+    const capsule = learnButton().closest(".notranslate") as HTMLElement
     expect(popover().parentElement).toBe(capsule.parentElement)
   })
 
   it("leaves the wrapper transform-free so the fixed popover is really fixed", async () => {
     render(<SelectionToolbar />)
-    fireEvent.click(translateButton())
+    fireEvent.click(learnButton())
 
     await waitFor(() => {
       expect(popover()).toBeInTheDocument()
     })
 
-    const capsule = screen.getByTitle("翻译").closest(".notranslate") as HTMLElement
+    const capsule = learnButton().closest(".notranslate") as HTMLElement
     // The centring transform belongs on the capsule. On the wrapper it would
     // become the containing block for the fixed popover and drag it back down
     // to the selection.
@@ -414,7 +568,7 @@ describe("selection toolbar result popover placement", () => {
 
   it("drags in viewport pixels and clamps to the viewport", async () => {
     render(<SelectionToolbar />)
-    fireEvent.click(translateButton())
+    fireEvent.click(learnButton())
 
     await waitFor(() => {
       expect(popover()).toBeInTheDocument()
@@ -439,7 +593,7 @@ describe("selection toolbar result popover placement", () => {
 
   it("clamps a drag to the viewport instead of letting the popover escape", async () => {
     render(<SelectionToolbar />)
-    fireEvent.click(translateButton())
+    fireEvent.click(learnButton())
     await waitFor(() => {
       expect(popover()).toBeInTheDocument()
     })
@@ -458,7 +612,7 @@ describe("selection toolbar result popover placement", () => {
 
   it("hands the next translation the default right-centre spot again", async () => {
     render(<SelectionToolbar />)
-    fireEvent.click(translateButton())
+    fireEvent.click(learnButton())
     await waitFor(() => {
       expect(popover()).toBeInTheDocument()
     })
@@ -473,7 +627,7 @@ describe("selection toolbar result popover placement", () => {
     expect(popover().style.left).toBe("560px")
 
     // A fresh translation resets it.
-    fireEvent.click(translateButton())
+    fireEvent.click(learnButton())
 
     await waitFor(() => {
       expect(popover().style.right).toBe("16px")

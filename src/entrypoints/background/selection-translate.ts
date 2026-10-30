@@ -9,8 +9,10 @@ import { browser } from "#imports"
 import { isLLMProviderConfig, isTranslateProviderConfig } from "@/types/config/provider"
 import { SELECTION_TRANSLATE_STREAM_PORT } from "@/types/selection-translate-stream"
 import { getLocalConfig } from "@/utils/config/storage"
+import { DEFAULT_CONFIG } from "@/utils/constants/config"
 import { resolveProviderConfigOrNull } from "@/utils/constants/feature-providers"
 import { queryWordDefinitionStructured } from "@/utils/dict/dict-api"
+import { quickTranslateWithGoogle } from "@/utils/google-translate"
 import { executeTranslateStream } from "@/utils/host/translate/execute-translate"
 import { logger } from "@/utils/logger"
 import { onMessage } from "@/utils/message"
@@ -81,6 +83,28 @@ async function translateSelectedTextStream(
   )
 }
 
+/**
+ * Quick machine translation of one selection over Google's free endpoint.
+ *
+ * The toolbar's 翻译 button: no provider, no prompt, no queue — it has to
+ * answer on a fresh install, which is also why it deliberately does not throw
+ * when no config has been saved yet (the language pair falls back to the
+ * defaults instead of a "configure a provider first" wall).
+ *
+ * The language pair comes from the config so the answer matches what the rest
+ * of the extension translates to; the source is whatever the user pinned, or
+ * Google's own detection when it is `auto`.
+ */
+async function quickTranslateSelectedText(data: { text: string }): Promise<string> {
+  const config = await getLocalConfig()
+
+  return await quickTranslateWithGoogle({
+    text: data.text,
+    sourceLanguageCode: config?.language.sourceCode ?? DEFAULT_CONFIG.language.sourceCode,
+    targetLanguageCode: config?.language.targetCode ?? DEFAULT_CONFIG.language.targetCode,
+  })
+}
+
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
@@ -148,5 +172,9 @@ export function setupSelectionTranslateStreamHandler() {
 export function setupSelectionTranslateHandler() {
   onMessage("translateSelectedTextStructured", async (message) => {
     return await translateSelectedTextStructured(message.data)
+  })
+
+  onMessage("quickTranslateSelection", async (message) => {
+    return await quickTranslateSelectedText(message.data)
   })
 }

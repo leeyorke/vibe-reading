@@ -41,7 +41,12 @@ export function SelectionToolbar() {
   const toolbarRef = useRef<HTMLDivElement>(null)
   const selection = useTextSelection(toolbarRef)
   const { state: speakState, speak, stop: stopSpeaking } = useSpeechPlayback()
-  const [translating, setTranslating] = useState(false)
+  // Which action is in flight, if any. One flag for both action buttons: a
+  // second click while an answer is on its way would stack two requests on the
+  // same selection and race their results into one popover.
+  const [pendingKind, setPendingKind] = useState<"learn" | "quick" | null>(null)
+  /** Either button is mid-request: both stay disabled, the popover spins. */
+  const translating = pendingKind !== null
   // True while deltas are still arriving. Distinct from `translating`: once the
   // first delta lands the popover should show the answer, not a spinner.
   const [streaming, setStreaming] = useState(false)
@@ -104,7 +109,7 @@ export function SelectionToolbar() {
       setShowTranslation(false)
       setTranslation(null)
       setWordDef(null)
-      setTranslating(false)
+      setPendingKind(null)
       setStreaming(false)
       setPinned(false)
       pinnedRectRef.current = null
@@ -153,14 +158,14 @@ export function SelectionToolbar() {
     }
   }, [streaming, translation])
 
-  const handleTranslate = useCallback(async () => {
+  const handleLearn = useCallback(async () => {
     if (!selection.text || translating)
       return
 
     // Pin the toolbar and save rect position
     pinnedRectRef.current = selection.rect
     setPinned(true)
-    setTranslating(true)
+    setPendingKind("learn")
     setStreaming(false)
     setShowTranslation(true)
     setTranslation(null)
@@ -168,25 +173,12 @@ export function SelectionToolbar() {
     // A fresh result snaps back to its anchored spot under the toolbar
     setPopoverPos(null)
 
-    const trimmed = selection.text.trim()
-    const wordCount = trimmed.split(/\s+/).length
-
     try {
-      // Single word: try structured dictionary lookup first
-      if (wordCount === 1) {
-        const def = await withMessageRetry(() =>
-          sendMessage("translateSelectedTextStructured", { text: trimmed }),
-        )
-        if (def) {
-          setWordDef(def)
-          setTranslating(false)
-          return
-        }
-      }
-
-      // Fallback to AI translation (multi-word or dictionary miss), streamed:
-      // the popover renders every delta as it arrives, and the `done` message
-      // hands back the authoritative whole text.
+      // AI translation, streamed: the popover renders every delta as it
+      // arrives, and the `done` message hands back the authoritative whole
+      // text. The learning button is the AI-only path on purpose — the
+      // dictionary detour lives on the 翻译 button, so the two answers can be
+      // compared side by side.
       //
       // Deliberately not wrapped in `withMessageRetry`: that helper retries
       // one-shot `sendMessage` calls whose only failure mode is a port that
@@ -218,7 +210,61 @@ export function SelectionToolbar() {
     }
     finally {
       setStreaming(false)
-      setTranslating(false)
+      setPendingKind(null)
+    }
+  }, [selection.text, selection.rect, translating])
+
+  /**
+   * The 翻译 button: the fast path. A single word is looked up in the local
+   * dictionary first — phonetics and numbered senses are something a machine
+   * translation cannot give — and a miss (or a multi-word selection) falls
+   * through to Google's free endpoint, one round trip, no provider.
+   *
+   * Shares the popover with the learning flow on purpose — the two answers are
+   * meant to be compared, and 收藏 saves whichever one is on screen. Both
+   * one-shot messages are wrapped in `withMessageRetry`: their only failure
+   * mode is a port that closed before the response was read.
+   */
+  const handleQuickTranslate = useCallback(async () => {
+    if (!selection.text || translating)
+      return
+
+    pinnedRectRef.current = selection.rect
+    setPinned(true)
+    setPendingKind("quick")
+    setShowTranslation(true)
+    setTranslation(null)
+    setWordDef(null)
+    setPopoverPos(null)
+
+    const trimmed = selection.text.trim()
+    const wordCount = trimmed.split(/\s+/).length
+
+    try {
+      // Single word: the dictionary answers first. `null` is a miss and means
+      // "fall through to Google", which is also what a failed lookup looks
+      // like — the background handler never throws for a bad entry.
+      if (wordCount === 1) {
+        const def = await withMessageRetry(() =>
+          sendMessage("translateSelectedTextStructured", { text: trimmed }),
+        )
+        if (def) {
+          setWordDef(def)
+          return
+        }
+      }
+
+      const result = await withMessageRetry(() =>
+        sendMessage("quickTranslateSelection", { text: selection.text }),
+      )
+      setTranslation(result)
+    }
+    catch (error) {
+      logger.error("[SelectionToolbar] Quick translation failed:", error)
+      setTranslation(`翻译失败：${errorMessage(error)}`)
+    }
+    finally {
+      setPendingKind(null)
     }
   }, [selection.text, selection.rect, translating])
 
@@ -286,7 +332,7 @@ export function SelectionToolbar() {
     setShowTranslation(false)
     setTranslation(null)
     setWordDef(null)
-    setTranslating(false)
+    setPendingKind(null)
     setStreaming(false)
     pinnedRectRef.current = null
     setCollectState("idle")
@@ -419,7 +465,7 @@ export function SelectionToolbar() {
           : (
               <>
                 <button
-                  onClick={handleTranslate}
+                  onClick={handleQuickTranslate}
                   disabled={translating}
                   style={{
                     display: "inline-flex",
@@ -439,7 +485,33 @@ export function SelectionToolbar() {
                   title="翻译"
                 >
                   <Icon icon="tabler:language" width="16" height="16" />
-                  {translating ? "翻译中..." : "翻译"}
+                  {pendingKind === "quick" ? "翻译中..." : "翻译"}
+                </button>
+
+                <button
+                  onClick={handleLearn}
+                  disabled={translating}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "4px",
+                    padding: "4px 10px",
+                    border: "1px solid",
+                    borderRadius: "6px",
+                    background: pendingKind === "learn" ? "var(--color-brand-50, #eff6ff)" : "transparent",
+                    color: pendingKind === "learn" ? "var(--color-brand-700, #1d4ed8)" : "var(--color-text, #374151)",
+                    borderColor: pendingKind === "learn" ? "var(--color-brand-300, #93c5fd)" : "var(--color-border, #e5e7eb)",
+                    cursor: "pointer",
+                    fontSize: "13px",
+                    fontWeight: 500,
+                    opacity: translating ? 0.6 : 1,
+                    transition: "all 0.2s ease",
+                    pointerEvents: "auto",
+                  }}
+                  title="学习"
+                >
+                  <Icon icon="tabler:book-2" width="16" height="16" />
+                  {pendingKind === "learn" ? "学习分析中..." : "学习"}
                 </button>
 
                 <button
@@ -601,7 +673,7 @@ export function SelectionToolbar() {
                     animation: "vibe-reading-spin 0.6s linear infinite",
                   }}
                   />
-                  翻译中...
+                  {pendingKind === "quick" ? "翻译中..." : "学习分析中..."}
                 </div>
               )
             : wordDef
