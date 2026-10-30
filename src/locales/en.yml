@@ -149,7 +149,7 @@ options:
         description: When off, the toolbar never appears on any page
       rules:
         title: Excluded sites
-        description: The toolbar will not appear on these sites. A rule covers the domain and all its subdomains, e.g. example.com also covers www.example.com
+        description: The toolbar will not appear on these sites. A rule covers the domain and all its subdomains, e.g. example.com also covers www.example.com. A rule may carry a port (e.g. localhost:4080) — with one it excludes that port only, without one it excludes every port of the domain
         add: Add
         remove: Remove
         empty: No site is excluded yet

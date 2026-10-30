@@ -61,6 +61,17 @@ describe("selection toolbar settings", () => {
     expect(selectionConfig().excludedDomains).toEqual(["www.example.com"])
   })
 
+  it("keeps the port the user typed", () => {
+    render(<SelectionToolbarSettings />)
+
+    fireEvent.change(screen.getByPlaceholderText("example.com"), {
+      target: { value: "http://127.0.0.1:4080/some/path" },
+    })
+    fireEvent.click(screen.getByText("options.general.selection.rules.add"))
+
+    expect(selectionConfig().excludedDomains).toEqual(["127.0.0.1:4080"])
+  })
+
   it("rejects a rule without a domain", () => {
     render(<SelectionToolbarSettings />)
 

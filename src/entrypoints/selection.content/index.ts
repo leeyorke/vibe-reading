@@ -24,12 +24,13 @@ export default defineContentScript({
 
       // The rules decide whether the toolbar may appear on this site at all.
       // The host is read once: a document cannot change its own host without a
-      // reload, and a reload runs this script again.
-      const hostname = window.location.hostname
+      // reload, and a reload runs this script again. `location.host` (not
+      // `hostname`) because a rule may pin a port, e.g. `localhost:4080`.
+      const host = window.location.host
       let unmount: (() => void) | null = null
 
       const applySelectionRules = (config: Config) => {
-        if (shouldShowSelectionToolbar(config.selection, hostname)) {
+        if (shouldShowSelectionToolbar(config.selection, host)) {
           unmount ??= mountSelectionToolbar()
           return
         }

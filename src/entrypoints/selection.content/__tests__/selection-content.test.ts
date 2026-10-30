@@ -95,6 +95,24 @@ describe("selection content script rules", () => {
     expect(state.mountCalls).toBe(0)
   })
 
+  it("does not mount the toolbar on a port-pinned rule", async () => {
+    setHostname("localhost:4080")
+    state.config = configWithSelection({ enabled: true, excludedDomains: ["localhost:4080"] })
+
+    await contentScript.main(createContext())
+
+    expect(state.mountCalls).toBe(0)
+  })
+
+  it("still mounts on another port of the same host", async () => {
+    setHostname("localhost:3000")
+    state.config = configWithSelection({ enabled: true, excludedDomains: ["localhost:4080"] })
+
+    await contentScript.main(createContext())
+
+    expect(state.mountCalls).toBe(1)
+  })
+
   it("hides the toolbar when a rule appears while the page is open", async () => {
     setHostname("example.com")
 

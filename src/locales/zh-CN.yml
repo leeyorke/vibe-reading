@@ -149,7 +149,7 @@ options:
         description: 关闭后，工具栏不会在任何页面出现
       rules:
         title: 排除的网站
-        description: 工具栏不会在这些网站出现。一条规则同时覆盖该域名及其所有子域名，例如 example.com 也覆盖 www.example.com
+        description: 工具栏不会在这些网站出现。一条规则同时覆盖该域名及其所有子域名，例如 example.com 也覆盖 www.example.com；也可以带端口（如 localhost:4080），带端口时只排除该端口，不带则排除该域名的所有端口
         add: 添加
         remove: 移除
         empty: 暂未排除任何网站

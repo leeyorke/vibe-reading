@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { isHostnameExcluded, matchesDomainRule, normalizeDomainRule, shouldShowSelectionToolbar } from "../selection-rules"
+import { isHostExcluded, matchesDomainRule, normalizeDomainRule, shouldShowSelectionToolbar } from "../selection-rules"
 
 describe("normalizeDomainRule", () => {
   it("keeps a plain hostname as it is", () => {
@@ -12,9 +12,17 @@ describe("normalizeDomainRule", () => {
     expect(normalizeDomainRule("https://example.com/path?a=1#top")).toBe("example.com")
   })
 
-  it("strips the port but keeps IPv6 literals intact", () => {
-    expect(normalizeDomainRule("http://localhost:3000")).toBe("localhost")
-    expect(normalizeDomainRule("http://[::1]:8080")).toBe("[::1]")
+  it("keeps the port so a rule can pin one service", () => {
+    expect(normalizeDomainRule("http://localhost:3000")).toBe("localhost:3000")
+    expect(normalizeDomainRule("127.0.0.1:4080")).toBe("127.0.0.1:4080")
+    expect(normalizeDomainRule("https://example.com:8080/path?a=1#top")).toBe("example.com:8080")
+    expect(normalizeDomainRule("*.example.com:8080")).toBe("example.com:8080")
+    expect(normalizeDomainRule("https://user:pass@example.com:8080")).toBe("example.com:8080")
+  })
+
+  it("keeps IPv6 literals intact, port included", () => {
+    expect(normalizeDomainRule("http://[::1]")).toBe("[::1]")
+    expect(normalizeDomainRule("http://[::1]:8080")).toBe("[::1]:8080")
   })
 
   it("strips the user info", () => {
@@ -34,6 +42,7 @@ describe("normalizeDomainRule", () => {
     expect(normalizeDomainRule("")).toBe("")
     expect(normalizeDomainRule("   ")).toBe("")
     expect(normalizeDomainRule("*")).toBe("")
+    expect(normalizeDomainRule("*:8080")).toBe("")
   })
 })
 
@@ -56,23 +65,41 @@ describe("matchesDomainRule", () => {
     expect(matchesDomainRule("WWW.Example.com", "example.com")).toBe(true)
   })
 
+  it("matches any port when the rule has none", () => {
+    expect(matchesDomainRule("localhost:4080", "localhost")).toBe(true)
+    expect(matchesDomainRule("localhost", "localhost")).toBe(true)
+  })
+
+  it("matches only the pinned port when the rule has one", () => {
+    expect(matchesDomainRule("127.0.0.1:4080", "127.0.0.1:4080")).toBe(true)
+    expect(matchesDomainRule("127.0.0.1:3000", "127.0.0.1:4080")).toBe(false)
+    expect(matchesDomainRule("127.0.0.1", "127.0.0.1:4080")).toBe(false)
+  })
+
+  it("keeps covering subdomains of a port-pinned rule", () => {
+    expect(matchesDomainRule("www.example.com:8080", "example.com:8080")).toBe(true)
+    expect(matchesDomainRule("www.example.com:9090", "example.com:8080")).toBe(false)
+  })
+
   it("never matches without a hostname or a rule", () => {
     expect(matchesDomainRule("", "example.com")).toBe(false)
     expect(matchesDomainRule("example.com", "")).toBe(false)
   })
 })
 
-describe("isHostnameExcluded", () => {
+describe("isHostExcluded", () => {
   it("is false without rules", () => {
-    expect(isHostnameExcluded("example.com", [])).toBe(false)
+    expect(isHostExcluded("example.com", [])).toBe(false)
   })
 
-  it("is true when any rule covers the hostname", () => {
-    expect(isHostnameExcluded("www.example.com", ["other.org", "example.com"])).toBe(true)
+  it("is true when any rule covers the host", () => {
+    expect(isHostExcluded("www.example.com", ["other.org", "example.com"])).toBe(true)
+    expect(isHostExcluded("localhost:4080", ["other.org", "localhost:4080"])).toBe(true)
   })
 
-  it("is false when no rule covers the hostname", () => {
-    expect(isHostnameExcluded("example.com", ["other.org", "another.org"])).toBe(false)
+  it("is false when no rule covers the host", () => {
+    expect(isHostExcluded("example.com", ["other.org", "another.org"])).toBe(false)
+    expect(isHostExcluded("localhost:3000", ["localhost:4080"])).toBe(false)
   })
 })
 
@@ -91,5 +118,12 @@ describe("shouldShowSelectionToolbar", () => {
 
   it("shows the toolbar on a site that is not excluded", () => {
     expect(shouldShowSelectionToolbar({ enabled: true, excludedDomains: ["example.com"] }, "other.org")).toBe(true)
+  })
+
+  it("hides the toolbar only on the excluded port", () => {
+    const config = { enabled: true, excludedDomains: ["localhost:4080"] }
+
+    expect(shouldShowSelectionToolbar(config, "localhost:4080")).toBe(false)
+    expect(shouldShowSelectionToolbar(config, "localhost:3000")).toBe(true)
   })
 })
