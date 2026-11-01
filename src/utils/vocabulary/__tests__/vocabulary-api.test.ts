@@ -126,6 +126,23 @@ describe("vocabulary api", () => {
     expect(result.eudicSync).toEqual({ ok: true })
   })
 
+  it("reports a duplicate when the book already held the word", async () => {
+    mockFetch({ ...backendWord({ id: "existing-id" }), duplicate: true })
+
+    const result = await apiAddWord({ word: "ephemeral", translation: "adj. 短暂的" })
+
+    expect(result.id).toBe("existing-id")
+    expect(result.duplicate).toBe(true)
+  })
+
+  it("reports no duplicate when the backend inserts a new row", async () => {
+    mockFetch({ ...backendWord({ id: "new-id" }) })
+
+    const result = await apiAddWord({ word: "ephemeral", translation: "adj. 短暂的" })
+
+    expect(result.duplicate).toBe(false)
+  })
+
   it("reports the Eudic sync result of a delete", async () => {
     mockFetch({ message: "删除成功", eudic_sync: { ok: true } })
 

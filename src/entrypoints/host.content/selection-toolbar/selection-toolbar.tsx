@@ -309,6 +309,10 @@ export function SelectionToolbar() {
       if (result?.eudicSync && !result.eudicSync.ok) {
         toast.warning(`已加入生词本，但同步到欧路失败：${result.eudicSync.error ?? "未知错误"}`)
       }
+      else if (result?.duplicate) {
+        // 后端查重命中：生词本里本来就有这个词，没有新增记录。
+        toast.success("已在生词本")
+      }
       else {
         toast.success("已加入生词本")
       }

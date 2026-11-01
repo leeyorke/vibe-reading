@@ -81,6 +81,7 @@ class FakeAudioContext {
 
 const { SelectionToolbar } = await import("../selection-toolbar")
 const { EXTENSION_STALE_MESSAGE } = await import("@/utils/message-retry")
+const { toast } = await import("sonner")
 
 function speakButton() {
   return screen.getByTitle("朗读选中的句子或单词")
@@ -338,7 +339,7 @@ describe("selection toolbar translate button", () => {
     })
     sendMessageMock.mockImplementation((type: string) => {
       if (type === "addVocabularyWord") {
-        return Promise.resolve("word-id")
+        return Promise.resolve({ id: "word-id" })
       }
       return Promise.resolve(null)
     })
@@ -357,6 +358,39 @@ describe("selection toolbar translate button", () => {
         word: "ephemeral",
         translation: "答案",
       }))
+    })
+    expect(toast.success).toHaveBeenCalledWith("已加入生词本")
+  })
+
+  it("says the word was already in the book instead of adding it twice", async () => {
+    streamMock.mockImplementation(async (_data: unknown, handlers: { onDelta: (delta: string) => void }) => {
+      handlers.onDelta("答案 ")
+      return "答案"
+    })
+    // 后端查重命中：同一个词已在生词本里，返回的是已有记录。
+    sendMessageMock.mockImplementation((type: string) => {
+      if (type === "addVocabularyWord") {
+        return Promise.resolve({ id: "word-id", duplicate: true })
+      }
+      return Promise.resolve(null)
+    })
+
+    render(<SelectionToolbar />)
+    fireEvent.click(learnButton())
+
+    await waitFor(() => {
+      expect(screen.getByTitle("加入生词本")).toBeEnabled()
+    })
+
+    fireEvent.click(screen.getByTitle("加入生词本"))
+
+    await waitFor(() => {
+      expect(toast.success).toHaveBeenCalledWith("已在生词本")
+    })
+    expect(toast.success).not.toHaveBeenCalledWith("已加入生词本")
+    // 状态照样变成「已收藏」——词确实在书里，只是没有新增。
+    await waitFor(() => {
+      expect(screen.getByTitle("已加入生词本")).toBeInTheDocument()
     })
   })
 })
@@ -469,7 +503,7 @@ describe("selection toolbar quick translate button", () => {
         return Promise.resolve("转瞬即逝")
       }
       if (type === "addVocabularyWord") {
-        return Promise.resolve("word-id")
+        return Promise.resolve({ id: "word-id" })
       }
       return Promise.resolve(null)
     })

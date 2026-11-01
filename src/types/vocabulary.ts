@@ -51,6 +51,12 @@ export interface EudicSyncStatus {
 export interface AddVocabularyWordResult {
   /** The new word's id */
   id: string
+  /**
+   * True when the book already held this word (case-insensitive): the
+   * backend returned the existing record instead of inserting a second
+   * one, so the UI can say "already collected" rather than "added".
+   */
+  duplicate?: boolean
   /** Present when the write touched the Eudic side */
   eudicSync?: EudicSyncStatus
 }

@@ -41,6 +41,7 @@ interface VocabularyListResponse {
 /** Backend write response shape */
 interface VocabularyWriteResponse {
   eudic_sync?: { ok: boolean, error?: string }
+  duplicate?: boolean
 }
 
 /** Convert backend snake_case to frontend camelCase */
@@ -101,8 +102,10 @@ function toWriteResult(raw: VocabularyWriteResponse | null): VocabularyWriteResu
 
 /**
  * Add a new vocabulary word via backend API.
- * Deduplication is handled by the backend.
- * Returns the word's id.
+ *
+ * Deduplication lives in the backend, case-insensitively over the whole
+ * book: a word that is already there comes back with `duplicate: true`
+ * and the existing record's id, and no second row is inserted.
  */
 export async function apiAddWord(data: AddVocabularyWordPayload): Promise<AddVocabularyWordResult> {
   const baseUrl = await getBackendBaseUrl()
@@ -118,7 +121,7 @@ export async function apiAddWord(data: AddVocabularyWordPayload): Promise<AddVoc
 
   const raw: VocabularyWordResponse & VocabularyWriteResponse = await res.json()
   logger.info("[Vocabulary] Added word via API:", raw.word)
-  return { id: raw.id, ...toWriteResult(raw) }
+  return { id: raw.id, duplicate: raw.duplicate === true, ...toWriteResult(raw) }
 }
 
 /**
