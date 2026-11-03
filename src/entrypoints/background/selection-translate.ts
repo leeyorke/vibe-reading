@@ -12,11 +12,11 @@ import { getLocalConfig } from "@/utils/config/storage"
 import { DEFAULT_CONFIG } from "@/utils/constants/config"
 import { resolveProviderConfigOrNull } from "@/utils/constants/feature-providers"
 import { queryWordDefinitionStructured } from "@/utils/dict/dict-api"
-import { quickTranslateWithGoogle } from "@/utils/google-translate"
 import { executeTranslateStream } from "@/utils/host/translate/execute-translate"
 import { logger } from "@/utils/logger"
 import { onMessage } from "@/utils/message"
 import { getSelectionTranslatePrompt } from "@/utils/prompts/translate"
+import { quickTranslate } from "@/utils/quick-translate"
 
 /**
  * Looks up a single word via the dictionary REST API and returns structured data.
@@ -84,7 +84,7 @@ async function translateSelectedTextStream(
 }
 
 /**
- * Quick machine translation of one selection over Google's free endpoint.
+ * Quick machine translation of one selection over the keyless provider chain.
  *
  * The toolbar's 翻译 button: no provider, no prompt, no queue — it has to
  * answer on a fresh install, which is also why it deliberately does not throw
@@ -93,12 +93,13 @@ async function translateSelectedTextStream(
  *
  * The language pair comes from the config so the answer matches what the rest
  * of the extension translates to; the source is whatever the user pinned, or
- * Google's own detection when it is `auto`.
+ * the endpoints' own detection when it is `auto`. Google answers first and
+ * Microsoft takes over when it rate-limits — see `utils/quick-translate.ts`.
  */
 async function quickTranslateSelectedText(data: { text: string }): Promise<string> {
   const config = await getLocalConfig()
 
-  return await quickTranslateWithGoogle({
+  return await quickTranslate({
     text: data.text,
     sourceLanguageCode: config?.language.sourceCode ?? DEFAULT_CONFIG.language.sourceCode,
     targetLanguageCode: config?.language.targetCode ?? DEFAULT_CONFIG.language.targetCode,

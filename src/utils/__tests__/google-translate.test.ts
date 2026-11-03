@@ -1,15 +1,10 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-
-vi.mock("@/utils/logger", () => ({
-  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-}))
+import { afterEach, describe, expect, it, vi } from "vitest"
+import { isRateLimitRequestError } from "@/utils/request/retry-policy"
 
 const {
   buildGoogleTranslateParams,
-  clearGoogleTranslateCache,
   parseGoogleTranslateResponse,
-  quickTranslateWithGoogle,
-  resolveGoogleLang,
+  translateWithGoogle,
 } = await import("@/utils/google-translate")
 
 /** The endpoint's real answer shape: nested arrays, one entry per segment. */
@@ -19,29 +14,6 @@ function translateResponse(parts: string[]) {
     headers: { "content-type": "application/json" },
   })
 }
-
-describe("resolveGoogleLang", () => {
-  it("maps the three-letter codes the config stores", () => {
-    expect(resolveGoogleLang("eng", "auto")).toBe("en")
-    expect(resolveGoogleLang("cmn", "auto")).toBe("zh")
-    expect(resolveGoogleLang("jpn", "auto")).toBe("ja")
-    expect(resolveGoogleLang("kor", "auto")).toBe("ko")
-  })
-
-  it("keeps the Chinese variants apart", () => {
-    expect(resolveGoogleLang("cmn-Hant", "auto")).toBe("zh-TW")
-  })
-
-  it("falls back per role: a source it cannot place becomes auto, a target becomes Chinese", () => {
-    expect(resolveGoogleLang("qqq", "auto")).toBe("auto")
-    expect(resolveGoogleLang("qqq", "zh-CN")).toBe("zh-CN")
-  })
-
-  it("treats a missing code as the fallback", () => {
-    expect(resolveGoogleLang(undefined, "auto")).toBe("auto")
-    expect(resolveGoogleLang("", "zh-CN")).toBe("zh-CN")
-  })
-})
 
 describe("buildGoogleTranslateParams", () => {
   it("names the endpoint's client, the language pair and the text", () => {
@@ -78,11 +50,7 @@ describe("parseGoogleTranslateResponse", () => {
   })
 })
 
-describe("quickTranslateWithGoogle", () => {
-  beforeEach(() => {
-    clearGoogleTranslateCache()
-  })
-
+describe("translateWithGoogle", () => {
   afterEach(() => {
     vi.unstubAllGlobals()
   })
@@ -90,57 +58,47 @@ describe("quickTranslateWithGoogle", () => {
   it("resolves with the translated text", async () => {
     vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => translateResponse(["答案"])))
 
-    await expect(quickTranslateWithGoogle({ text: " the answer " })).resolves.toBe("答案")
+    await expect(translateWithGoogle(" the answer ", "auto", "zh-CN")).resolves.toBe("答案")
   })
 
-  it("asks for the configured language pair, auto-detecting an auto source", async () => {
+  it("asks for the language pair it was handed", async () => {
     const fetchMock = vi.fn().mockImplementation(async () => translateResponse(["答案"]))
     vi.stubGlobal("fetch", fetchMock)
 
-    await quickTranslateWithGoogle({ text: "ephemeral", sourceLanguageCode: "auto", targetLanguageCode: "cmn" })
+    await translateWithGoogle("ephemeral", "auto", "zh")
 
     const url = new URL(fetchMock.mock.calls[0][0] as string)
+    expect(url.hostname).toBe("translate.googleapis.com")
     expect(url.searchParams.get("sl")).toBe("auto")
     expect(url.searchParams.get("tl")).toBe("zh")
-  })
-
-  it("serves a repeat selection from cache instead of calling again", async () => {
-    const fetchMock = vi.fn().mockImplementation(async () => translateResponse(["答案"]))
-    vi.stubGlobal("fetch", fetchMock)
-
-    await quickTranslateWithGoogle({ text: "ephemeral" })
-    await quickTranslateWithGoogle({ text: "ephemeral" })
-
-    expect(fetchMock).toHaveBeenCalledTimes(1)
-  })
-
-  it("keeps different target languages apart in the cache", async () => {
-    const fetchMock = vi.fn().mockImplementation(async () => translateResponse(["答案"]))
-    vi.stubGlobal("fetch", fetchMock)
-
-    await quickTranslateWithGoogle({ text: "ephemeral", targetLanguageCode: "cmn" })
-    await quickTranslateWithGoogle({ text: "ephemeral", targetLanguageCode: "jpn" })
-
-    expect(fetchMock).toHaveBeenCalledTimes(2)
-  })
-
-  it("rejects an empty selection without calling the endpoint", async () => {
-    const fetchMock = vi.fn()
-    vi.stubGlobal("fetch", fetchMock)
-
-    await expect(quickTranslateWithGoogle({ text: "   " })).rejects.toThrow("没有选中的文字")
-    expect(fetchMock).not.toHaveBeenCalled()
+    // No cookies: the endpoint is anonymous and sending them only leaks them.
+    expect(fetchMock.mock.calls[0][1].credentials).toBe("omit")
   })
 
   it("surfaces a non-OK status instead of a blank answer", async () => {
     vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => new Response("", { status: 429 })))
 
-    await expect(quickTranslateWithGoogle({ text: "ephemeral" })).rejects.toThrow("429")
+    await expect(translateWithGoogle("ephemeral", "auto", "zh-CN")).rejects.toThrow("429")
+  })
+
+  // The fallback chain cools a provider down on rate limits only. The status
+  // has to survive on the error for that decision to be possible at all.
+  it("marks a 429 as a rate-limit error the chain can recognise", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => new Response("", { status: 429 })))
+
+    const error = await translateWithGoogle("ephemeral", "auto", "zh-CN").catch((e: unknown) => e)
+    expect(isRateLimitRequestError(error)).toBe(true)
   })
 
   it("surfaces an unparseable body instead of rendering it into the popover", async () => {
     vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => new Response("<html>", { status: 200 })))
 
-    await expect(quickTranslateWithGoogle({ text: "ephemeral" })).rejects.toThrow("无法解析")
+    await expect(translateWithGoogle("ephemeral", "auto", "zh-CN")).rejects.toThrow("无法解析")
+  })
+
+  it("names itself when the transport fails, so an aggregated failure stays readable", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network down")))
+
+    await expect(translateWithGoogle("ephemeral", "auto", "zh-CN")).rejects.toThrow("Google 翻译接口网络错误：network down")
   })
 })

@@ -1,23 +1,34 @@
 import { TTS_DEFAULT_LANG } from "@/utils/constants/speech"
+import { runWithFallback } from "@/utils/fallback-chain"
 import { logger } from "@/utils/logger"
 
 /**
  * Text-to-speech for anything that has a sentence to pronounce — currently the
- * selection toolbar.
+ * selection toolbar and the flashcard page.
  *
  * The browser's own `speechSynthesis` was dropped first: it silently depends on
  * an English voice pack being installed, and on a bare Windows profile there
  * simply is not one, so the button did nothing.
  *
- * What remains is the endpoint behind Google Translate's own speaker button. It
- * is not a documented API and carries no availability guarantee, so every call
- * is cached and every failure is surfaced rather than swallowed — if it ever
- * changes, this file is the only thing that has to change with it.
+ * What remains is the endpoint behind Google Translate's own speaker button,
+ * declared as a one-entry fallback chain (see `utils/fallback-chain.ts`) so a
+ * second provider is one array entry away. It is not a documented API and
+ * carries no availability guarantee, so every call is cached and every failure
+ * is surfaced rather than swallowed — if it ever changes, this file is the only
+ * thing that has to change with it.
  *
- * Microsoft's equivalent (the Edge read-aloud endpoint) was tried and is not
- * usable here: it rejects every request that lacks a `Sec-MS-GEC` token
- * computed from a Windows machine identifier, which is an anti-automation
- * control rather than an API quirk.
+ * The list holds one entry on purpose:
+ *
+ * - **Microsoft's equivalent (the Edge read-aloud endpoint) is not usable
+ *   here**: it rejects every request that lacks a `Sec-MS-GEC` token computed
+ *   from a Windows machine identifier, which is an anti-automation control
+ *   rather than an API quirk — the same call the quick-translate chain made
+ *   about the retired token endpoint. Do not work around it.
+ * - **Baidu's keyless `gettts` endpoint was verified working** (audio/mpeg,
+ *   no token) for `en`/`uk`/`zh`/`jp`/`kor` only, and dropped by product
+ *   decision. Adding it back means one entry here plus a BCP-47 → Baidu `lan`
+ *   mapping, and a `supports`-style language gate, because it answers 403 for
+ *   every other language.
  */
 
 const GOOGLE_TTS_ENDPOINT = "https://translate.google.com/translate_tts"
@@ -162,7 +173,30 @@ async function fetchCachedAudio({ text, sourceLanguage }: SynthesizeSpeechInput)
     return cached
   }
 
-  const response = await fetch(buildGoogleTtsUrl(trimmed, lang), {
+  const entry = await runWithFallback<CachedAudio>([
+    {
+      name: "Google TTS",
+      // No cooldown key: with a single provider there is nothing to demote.
+      // Add one when a second provider joins the list.
+      run: () => fetchGoogleTts(trimmed, lang),
+    },
+  ])
+
+  if (audioCache.size >= AUDIO_CACHE_LIMIT) {
+    // Map iterates in insertion order, so the first key is the oldest entry.
+    const oldest = audioCache.keys().next().value
+    if (oldest !== undefined) {
+      audioCache.delete(oldest)
+    }
+  }
+  audioCache.set(lang + trimmed, entry)
+
+  logger.info(`[TTS] Synthesised ${lang}, ${Math.round(entry.buffer.byteLength / 1024)}KB`)
+  return entry
+}
+
+async function fetchGoogleTts(text: string, lang: string): Promise<CachedAudio> {
+  const response = await fetch(buildGoogleTtsUrl(text, lang), {
     // The endpoint is anonymous; sending cookies would only leak them.
     credentials: "omit",
     headers: { Accept: "audio/mpeg" },
@@ -179,19 +213,7 @@ async function fetchCachedAudio({ text, sourceLanguage }: SynthesizeSpeechInput)
     throw new Error("Google TTS answered with a non-audio body")
   }
 
-  const entry: CachedAudio = { buffer: await response.arrayBuffer(), mimeType }
-
-  if (audioCache.size >= AUDIO_CACHE_LIMIT) {
-    // Map iterates in insertion order, so the first key is the oldest entry.
-    const oldest = audioCache.keys().next().value
-    if (oldest !== undefined) {
-      audioCache.delete(oldest)
-    }
-  }
-  audioCache.set(lang + trimmed, entry)
-
-  logger.info(`[TTS] Synthesised ${lang}, ${Math.round(entry.buffer.byteLength / 1024)}KB`)
-  return entry
+  return { buffer: await response.arrayBuffer(), mimeType }
 }
 
 /** Test seam: the cache is an implementation detail with no other consumer. */
