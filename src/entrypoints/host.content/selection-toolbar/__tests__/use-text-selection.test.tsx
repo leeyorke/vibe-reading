@@ -2,7 +2,7 @@ import type { Mock } from "vitest"
 // @vitest-environment jsdom
 import { act, renderHook } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { useTextSelection } from "../use-text-selection"
+import { extractSentence, useTextSelection } from "../use-text-selection"
 
 // jsdom ships no layout, so `Range.getBoundingClientRect()` is missing entirely.
 // Install it once per test and let each test steer what it reports.
@@ -27,6 +27,25 @@ function selectText(text: string) {
 /** Lets the queued animation frames run, which is when the hook measures. */
 function nextFrame() {
   return new Promise(resolve => requestAnimationFrame(() => resolve(null)))
+}
+
+/**
+ * Builds a real `<p>` holding `text`, then selects the substring `word` inside
+ * it — the shape of a user dragging over one word of a sentence. Returns the
+ * range so tests can hand it straight to `extractSentence`.
+ */
+function selectWordIn(text: string, word: string) {
+  const p = document.createElement("p")
+  p.textContent = text
+  document.body.appendChild(p)
+
+  const start = text.indexOf(word)
+  expect(start).toBeGreaterThanOrEqual(0)
+
+  const range = document.createRange()
+  range.setStart(p.firstChild!, start)
+  range.setEnd(p.firstChild!, start + word.length)
+  return range
 }
 
 describe("useTextSelection", () => {
@@ -132,5 +151,70 @@ describe("useTextSelection", () => {
 
     expect(result.current.isVisible).toBe(false)
     expect(rectSpy).not.toHaveBeenCalled()
+  })
+})
+
+describe("extractSentence", () => {
+  beforeEach(() => {
+    document.body.innerHTML = ""
+  })
+
+  it("returns the whole sentence a mid-sentence word sits inside", () => {
+    const range = selectWordIn("When you're left with no option.", "option")
+    expect(extractSentence(range)).toBe("When you're left with no option.")
+  })
+
+  it("isolates one sentence from a multi-sentence paragraph", () => {
+    const range = selectWordIn(
+      "First sentence here. The quick brown fox jumps. Third one follows.",
+      "fox",
+    )
+    expect(extractSentence(range)).toBe("The quick brown fox jumps.")
+  })
+
+  it("captures a word at the very start of the paragraph", () => {
+    const range = selectWordIn("Creativity is intelligence having fun.", "Creativity")
+    expect(extractSentence(range)).toBe("Creativity is intelligence having fun.")
+  })
+
+  it("keeps the selected text itself when the selection spans two paragraphs", () => {
+    // A cross-paragraph selection has an endpoint outside the block, so the
+    // slice against one block would be garbled — fall back to the selection.
+    const p1 = document.createElement("p")
+    p1.textContent = "First paragraph."
+    const p2 = document.createElement("p")
+    p2.textContent = "Second paragraph."
+    document.body.append(p1, p2)
+
+    const range = document.createRange()
+    range.setStart(p1.firstChild!, 0)
+    range.setEnd(p2.firstChild!, "Second".length)
+
+    expect(extractSentence(range)).toBe("First paragraph.Second")
+  })
+
+  it("returns empty for a selection with no text", () => {
+    const p = document.createElement("p")
+    p.textContent = "Some text."
+    document.body.appendChild(p)
+
+    const range = document.createRange()
+    range.setStart(p.firstChild!, 0)
+    range.setEnd(p.firstChild!, 0)
+
+    expect(extractSentence(range)).toBe("")
+  })
+
+  it("returns empty when the selection is not inside a block container", () => {
+    // Text nodes directly under body (no <p>/<div>/… ancestor) have no passage
+    // to read a sentence out of.
+    const text = document.createTextNode("Orphan words here.")
+    document.body.appendChild(text)
+
+    const range = document.createRange()
+    range.setStart(text, 0)
+    range.setEnd(text, "Orphan".length)
+
+    expect(extractSentence(range)).toBe("")
   })
 })

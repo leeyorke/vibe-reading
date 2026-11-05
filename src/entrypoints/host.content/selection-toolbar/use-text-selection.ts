@@ -7,10 +7,106 @@ export interface SelectionState {
   rect: DOMRect | null
   /** Whether the selection is visible/non-empty */
   isVisible: boolean
+  /**
+   * The full sentence the selection sits inside (its 出处), e.g. selecting
+   * "option" in "When you're left with no option." yields that whole
+   * sentence. Empty when none can be determined.
+   */
+  sentence: string
 }
 
 const TOOLBAR_HEIGHT = 40
 const TOOLBAR_MARGIN = 8
+
+/** Characters that end a sentence — Latin and CJK terminators. */
+const SENTENCE_END = /[.!?;。！？；]/
+
+/**
+ * Block-level containers we're willing to read a passage out of. We walk up
+ * to the *nearest* one, so a word inside a `<p>` reads its paragraph rather
+ * than a sprawling ancestor `<div>`.
+ */
+const BLOCK_SELECTOR
+  = "p, li, td, th, blockquote, h1, h2, h3, h4, h5, h6, dd, dt, figcaption, pre, div, section, article"
+
+/**
+ * How many characters of `block`'s text precede `node`/`offset`.
+ */
+function offsetWithin(block: HTMLElement, node: Node, offset: number): number {
+  const r = document.createRange()
+  r.selectNodeContents(block)
+  try {
+    r.setEnd(node, offset)
+  }
+  catch {
+    return 0
+  }
+  return r.toString().length
+}
+
+/**
+ * The full sentence (the word's 出处) that a selection sits inside.
+ *
+ * Walks up to the nearest block-level ancestor so the sentence is read from
+ * the same passage the word lives in, locates the selection's character
+ * offsets within that passage, then expands to the surrounding sentence
+ * boundaries. Returns "" when nothing sensible can be determined — callers
+ * store it as-is, and an empty 出处 is fine.
+ */
+export function extractSentence(range: Range): string {
+  const selected = range.toString().trim()
+  if (!selected) {
+    return ""
+  }
+
+  let block: HTMLElement | null = null
+  let node: Node | null = range.startContainer
+  while (node) {
+    if (node instanceof HTMLElement && node.matches(BLOCK_SELECTOR)) {
+      block = node
+      break
+    }
+    node = node.parentNode
+  }
+  if (!block) {
+    return ""
+  }
+
+  const blockText = block.textContent ?? ""
+  if (!blockText) {
+    return ""
+  }
+
+  // A selection spanning several paragraphs has an endpoint outside this
+  // block — offsets computed against `block` would be meaningless, so fall
+  // back to the selection itself rather than a garbled slice.
+  if (!block.contains(range.startContainer) || !block.contains(range.endContainer)) {
+    return selected
+  }
+
+  const startOffset = offsetWithin(block, range.startContainer, range.startOffset)
+  const endOffset = offsetWithin(block, range.endContainer, range.endOffset)
+
+  // Sentence start: just after the last terminator before the selection.
+  let sentStart = 0
+  for (let i = Math.min(startOffset, blockText.length) - 1; i >= 0; i--) {
+    if (SENTENCE_END.test(blockText[i])) {
+      sentStart = i + 1
+      break
+    }
+  }
+
+  // Sentence end: the first terminator at or after the selection's end.
+  let sentEnd = blockText.length
+  for (let i = Math.max(endOffset, 0); i < blockText.length; i++) {
+    if (SENTENCE_END.test(blockText[i])) {
+      sentEnd = i + 1
+      break
+    }
+  }
+
+  return blockText.slice(sentStart, sentEnd).replace(/\s+/g, " ").trim()
+}
 
 /**
  * Tracks text selection on the page and returns position + text.
@@ -21,6 +117,7 @@ export function useTextSelection(toolbarRef: React.RefObject<HTMLElement | null>
     text: "",
     rect: null,
     isVisible: false,
+    sentence: "",
   })
 
   // Store the last mousedown timestamp for hide-on-outside-click logic
@@ -60,7 +157,7 @@ export function useTextSelection(toolbarRef: React.RefObject<HTMLElement | null>
     const sel = window.getSelection()
     if (!sel || sel.isCollapsed || !sel.toString().trim()) {
       lastRangeRef.current = null
-      setSelection(prev => (prev.isVisible ? { text: "", rect: null, isVisible: false } : prev))
+      setSelection(prev => (prev.isVisible ? { text: "", rect: null, isVisible: false, sentence: "" } : prev))
       return
     }
 
@@ -68,12 +165,12 @@ export function useTextSelection(toolbarRef: React.RefObject<HTMLElement | null>
     const range = sel.getRangeAt(0)
     lastRangeRef.current = range.cloneRange()
 
-    setSelection({ text, rect: measureRange(range), isVisible: true })
+    setSelection({ text, rect: measureRange(range), isVisible: true, sentence: extractSentence(range) })
   }, [measureRange])
 
   const hideToolbar = useCallback(() => {
     lastRangeRef.current = null
-    setSelection({ text: "", rect: null, isVisible: false })
+    setSelection({ text: "", rect: null, isVisible: false, sentence: "" })
   }, [])
 
   /**
@@ -91,7 +188,7 @@ export function useTextSelection(toolbarRef: React.RefObject<HTMLElement | null>
       if (text === "") {
         return prev
       }
-      return { text, rect: measureRange(range), isVisible: true }
+      return { text, rect: measureRange(range), isVisible: true, sentence: prev.sentence }
     })
   }, [currentRange, measureRange])
 

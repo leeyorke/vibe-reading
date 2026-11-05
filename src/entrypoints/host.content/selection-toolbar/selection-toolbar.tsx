@@ -302,6 +302,9 @@ export function SelectionToolbar() {
         translation: translationToSave,
         contextUrl: window.location.href,
         contextText: selection.text,
+        // The word's 出处 — the full sentence it was collected from. Only the
+        // frontend collect writes this; Eudic / GoldenDict imports leave it empty.
+        from: selection.sentence || undefined,
       })
       setCollectState("collected")
       // The word is in the local book either way. When the Eudic push fails,
@@ -327,7 +330,7 @@ export function SelectionToolbar() {
       setCollectState("idle")
       toast.error("收藏失败")
     }
-  }, [selection.text, translation, wordDef, collectState])
+  }, [selection.text, selection.sentence, translation, wordDef, collectState])
 
   // Dismiss toolbar and popover when user clicks outside
   const handleDismiss = useCallback(() => {

@@ -9,6 +9,12 @@ export interface VocabularyWord {
   contextUrl?: string
   /** Surrounding sentence context */
   contextText?: string
+  /**
+   * The full sentence the word was collected from (its 出处), e.g.
+   * "When you're left with no option." Only written by the frontend
+   * selection collect; Eudic / GoldenDict imports leave it empty.
+   */
+  from?: string
   /** ISO 639-3 source language code */
   sourceLanguage?: string
   /** ISO 639-3 target language code */
@@ -75,6 +81,8 @@ export interface AddVocabularyWordPayload {
   contextText?: string
   sourceLanguage?: string
   targetLanguage?: string
+  /** The full sentence the word was collected from (its 出处) */
+  from?: string
 }
 
 /** Payload for updating a vocabulary word */

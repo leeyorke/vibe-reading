@@ -26,6 +26,7 @@ interface VocabularyWordResponse {
   note?: string
   source?: "local" | "eudic"
   phonetic?: string
+  from_context?: string
 }
 
 /** Backend list response shape */
@@ -61,6 +62,7 @@ function toVocabularyWord(raw: VocabularyWordResponse): VocabularyWord {
     note: raw.note,
     source: raw.source,
     phonetic: raw.phonetic,
+    from: raw.from_context,
   }
 }
 
@@ -73,6 +75,7 @@ function toAddPayload(data: AddVocabularyWordPayload): Record<string, unknown> {
     ...(data.contextText != null && { context_text: data.contextText }),
     ...(data.sourceLanguage != null && { source_language: data.sourceLanguage }),
     ...(data.targetLanguage != null && { target_language: data.targetLanguage }),
+    ...(data.from != null && { from_context: data.from }),
   }
 }
 
